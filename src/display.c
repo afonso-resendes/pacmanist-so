@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <ctype.h>
 
-
+//test
 int terminal_init() {
     // Initialize ncurses mode
     initscr();
