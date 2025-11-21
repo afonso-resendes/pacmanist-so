@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>
+#include <fcntl.h>      // Para open(), O_RDONLY
 #include <stdarg.h>
 
 FILE * debugfile;
@@ -377,7 +378,7 @@ int load_ghost(board_t* board) {
 
 int load_level(board_t *board, int points) {
     board->height = 5;
-    board->width = 10;
+    board->width = 20;
     board->tempo = 10;
 
     board->n_ghosts = 2;
@@ -478,4 +479,51 @@ void print_board(board_t *board) {
     buffer[offset] = '\0';
 
     debug("%s", buffer);
+}
+
+// Função de teste para ler ficheiro .lvl
+int test_read_level_file(char* level_directory, char* level_name) {
+    // Construir caminho: level_directory + "/" + level_name + ".lvl"
+    char level_path[512];
+    snprintf(level_path, sizeof(level_path), "%s/%s.lvl", 
+             level_directory, level_name);
+    
+    printf("Tentando abrir: %s\n", level_path);
+    int fd = open(level_path, O_RDONLY);
+    if (fd < 0) {
+        printf("ERRO: Não consegui abrir o ficheiro!\n");
+        return -1;
+    }
+    printf("✓ Ficheiro aberto com sucesso!\n\n");
+
+    // Ler todo o ficheiro de uma vez
+    char buffer[4096];
+    ssize_t total_bytes = read(fd, buffer, sizeof(buffer) - 1);
+
+    if (total_bytes < 0) {
+        printf("ERRO: Não consegui ler o ficheiro!\n");
+        close(fd);
+        return -1;
+    }
+
+    buffer[total_bytes] = '\0';
+
+    int line_num = 0;
+    char* line_start = buffer;
+    char* current = buffer;
+
+    while (*current != '\0') {
+    if (*current == '\n') {
+        *current = '\0';  // Terminar linha
+        
+        if (current > line_start) {  // Se há conteúdo
+            line_num++;
+            printf("Linha %d: [%s]\n", line_num, line_start);
+        }
+        
+        line_start = current + 1;  // Próxima linha começa aqui
+    }
+    current++;
+}
+    return 0;
 }

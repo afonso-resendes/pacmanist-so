@@ -97,4 +97,7 @@ void debug(const char * format, ...);
 /*Writes the board and its contents to the open debug file*/
 void print_board(board_t* board);
 
+/*Test function to read level file*/
+int test_read_level_file(char* level_directory, char* level_name);
+
 #endif

@@ -73,6 +73,14 @@ int main(int argc, char** argv) {
         // TODO receive inputs
     }
 
+    char* level_directory = argv[1];
+
+    printf("=== TESTE DE LEITURA DE FICHEIRO ===\n");
+    test_read_level_file(level_directory, "2");
+    printf("=== FIM DO TESTE ===\n\n");
+
+    
+  
     // Random seed for any random movements
     srand((unsigned int)time(NULL));
 

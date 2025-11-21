@@ -35,9 +35,10 @@ $(BIN_DIR)/$(TARGET): $(OBJS) | folders
 %.o: %.c $($@) | folders
 	$(CC) -I $(INCLUDE_DIR) $(CFLAGS) -o $(OBJ_DIR)/$@ -c $<
 
-# run the program
+# run the program (default to "levels" directory)
+ARGS ?= levels
 run: pacmanist
-	@./$(BIN_DIR)/$(TARGET)
+	@./$(BIN_DIR)/$(TARGET) $(ARGS)
 
 # Create folders
 folders:
