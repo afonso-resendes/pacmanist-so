@@ -71,6 +71,7 @@ int main(int argc, char** argv) {
     if (argc != 2) {
         printf("Usage: %s <level_directory>\n", argv[0]);
         // TODO receive inputs
+        return 1;
     }
 
     char* level_directory = argv[1];
@@ -79,7 +80,7 @@ int main(int argc, char** argv) {
     test_read_level_file(level_directory, "2");
     printf("=== FIM DO TESTE ===\n\n");
 
-    
+    return 0;
   
     // Random seed for any random movements
     srand((unsigned int)time(NULL));

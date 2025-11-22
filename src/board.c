@@ -5,6 +5,19 @@
 #include <unistd.h>
 #include <fcntl.h>      // Para open(), O_RDONLY
 #include <stdarg.h>
+#include <string.h> 
+
+// Estrutura para guardar dados parseados do ficheiro .lvl
+typedef struct {
+    int width;
+    int height;
+    int tempo;
+    char pac_file[MAX_FILENAME];
+    char ghost_files[MAX_GHOSTS][MAX_FILENAME];
+    int n_ghosts;
+    char board_lines[MAX_BOARD_HEIGHT][MAX_FILENAME]; // Linhas do tabuleiro
+    int n_board_lines;
+} level_data_t;
 
 FILE * debugfile;
 
@@ -31,12 +44,25 @@ static inline int is_valid_position(board_t* board, int x, int y) {
     return (x >= 0 && x < board->width) && (y >= 0 && y < board->height); // Inside of the board boundaries
 }
 
+static int parse_dim_line(char* line, int* width, int* height) {
+    if (strncmp(line, "DIM", 3) != 0) {
+        return -1;
+    }
+
+    if (sscanf(line, "DIM %d %d", width, height) != 2) {
+        return -1; // Invalid format
+    }
+
+    return 0; 
+}
+
 void sleep_ms(int milliseconds) {
     struct timespec ts;
     ts.tv_sec = milliseconds / 1000;
     ts.tv_nsec = (milliseconds % 1000) * 1000000;
     nanosleep(&ts, NULL);
 }
+
 
 int move_pacman(board_t* board, int pacman_index, command_t* command) {
     if (pacman_index < 0 || !board->pacmans[pacman_index].alive) {
@@ -481,9 +507,34 @@ void print_board(board_t *board) {
     debug("%s", buffer);
 }
 
-// Função de teste para ler ficheiro .lvl
+// Helper function para processar uma linha
+static void process_line(char* line, int line_num, level_data_t* level_data) {
+     
+    if (parse_dim_line(line, &level_data->width, &level_data->height) == 0) {
+        printf("✓ Linha %d - DIM: %d x %d\n", line_num, level_data->width, level_data->height);
+        return; // Encontrou DIM, sair
+    }
+
+    if (line_num > 4) {
+        // Guardar linha do tabuleiro
+        if (level_data->n_board_lines < MAX_BOARD_HEIGHT) {
+            strncpy(level_data->board_lines[level_data->n_board_lines], 
+                   line, 
+                   MAX_FILENAME - 1);
+            level_data->board_lines[level_data->n_board_lines][MAX_FILENAME - 1] = '\0';
+            level_data->n_board_lines++;
+        }
+    } else {
+        // É outro comando (TEMPO, PAC, MON) - por agora só imprimir
+        printf("Linha %d: [%s]\n", line_num, line);
+    }
+}
+
 int test_read_level_file(char* level_directory, char* level_name) {
-    // Construir caminho: level_directory + "/" + level_name + ".lvl"
+    // Criar estrutura para guardar dados parseados
+    level_data_t level_data;
+    memset(&level_data, 0, sizeof(level_data_t)); // Inicializar a zero
+    
     char level_path[512];
     snprintf(level_path, sizeof(level_path), "%s/%s.lvl", 
              level_directory, level_name);
@@ -496,7 +547,6 @@ int test_read_level_file(char* level_directory, char* level_name) {
     }
     printf("✓ Ficheiro aberto com sucesso!\n\n");
 
-    // Ler todo o ficheiro de uma vez
     char buffer[4096];
     ssize_t total_bytes = read(fd, buffer, sizeof(buffer) - 1);
 
@@ -513,17 +563,27 @@ int test_read_level_file(char* level_directory, char* level_name) {
     char* current = buffer;
 
     while (*current != '\0') {
-    if (*current == '\n') {
-        *current = '\0';  // Terminar linha
-        
-        if (current > line_start) {  // Se há conteúdo
-            line_num++;
-            printf("Linha %d: [%s]\n", line_num, line_start);
+        if (*current == '\n') {
+            *current = '\0';
+            
+            if (current > line_start) {
+                line_num++;
+                process_line(line_start, line_num, &level_data);
+            }
+            
+            line_start = current + 1;
         }
-        
-        line_start = current + 1;  // Próxima linha começa aqui
+        current++;
     }
-    current++;
-}
+    
+    // Processar última linha (se não terminar com \n)
+    if (current > line_start) {
+        line_num++;
+        process_line(line_start, line_num, &level_data);
+    }   
+    close(fd);
+    printf("\n✓ Ficheiro lido completamente!\n");
+    printf("Dimensões parseadas: %d x %d\n", level_data.width, level_data.height);
+    printf("Linhas do tabuleiro: %d\n", level_data.n_board_lines);
     return 0;
 }

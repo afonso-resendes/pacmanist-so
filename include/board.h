@@ -4,6 +4,7 @@
 #define MAX_MOVES 20
 #define MAX_LEVELS 20
 #define MAX_FILENAME 256
+#define MAX_BOARD_HEIGHT 100
 #define MAX_GHOSTS 25
 
 typedef enum {
