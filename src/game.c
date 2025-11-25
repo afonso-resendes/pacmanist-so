@@ -70,18 +70,11 @@ int play_board(board_t * game_board) {
 int main(int argc, char** argv) {
     if (argc != 2) {
         printf("Usage: %s <level_directory>\n", argv[0]);
-        // TODO receive inputs
         return 1;
     }
 
     char* level_directory = argv[1];
-
-    printf("=== TESTE DE LEITURA DE FICHEIRO ===\n");
-    test_read_level_file(level_directory, "2");
-    printf("=== FIM DO TESTE ===\n\n");
-
-    return 0;
-  
+    
     // Random seed for any random movements
     srand((unsigned int)time(NULL));
 
@@ -93,8 +86,15 @@ int main(int argc, char** argv) {
     bool end_game = false;
     board_t game_board;
 
+    // Parsear o ficheiro do nível
+    level_data_t level_data;
+    if (parse_level_file(level_directory, "2", &level_data) != 0) {
+        printf("ERRO: Não consegui carregar o nível!\n");
+        return 1;
+    }
+
     while (!end_game) {
-        load_level(&game_board, accumulated_points);
+        load_level(&game_board, accumulated_points, &level_data);  // Passar &level_data
         draw_board(&game_board, DRAW_MENU);
         refresh_screen();
 

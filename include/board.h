@@ -60,6 +60,18 @@ typedef struct {
     int tempo;              // Duration of each play
 } board_t;
 
+// Estrutura para guardar dados parseados do ficheiro .lvl
+typedef struct {
+    int width;
+    int height;
+    int tempo;
+    char pac_file[MAX_FILENAME];
+    char ghost_files[MAX_GHOSTS][MAX_FILENAME];
+    int n_ghosts;
+    char board_lines[MAX_BOARD_HEIGHT][MAX_FILENAME]; // Linhas do tabuleiro
+    int n_board_lines;
+} level_data_t;
+
 /*Makes the current thread sleep for 'int milliseconds' miliseconds*/
 void sleep_ms(int milliseconds);
 
@@ -79,7 +91,7 @@ int load_pacman(board_t* board, int points);
 int load_ghost(board_t* board);
 
 /*Loads a level into board*/
-int load_level(board_t* board, int accumulated_points);
+int load_level(board_t* board, int accumulated_points, level_data_t* level_data);
 
 /*Unloads levels loaded by load_level*/
 void unload_level(board_t * board);
@@ -98,7 +110,7 @@ void debug(const char * format, ...);
 /*Writes the board and its contents to the open debug file*/
 void print_board(board_t* board);
 
-/*Test function to read level file*/
-int test_read_level_file(char* level_directory, char* level_name);
+/*Function to read level file*/
+int parse_level_file(char* level_directory, char* level_name, level_data_t* level_data);
 
 #endif

@@ -7,17 +7,7 @@
 #include <stdarg.h>
 #include <string.h> 
 
-// Estrutura para guardar dados parseados do ficheiro .lvl
-typedef struct {
-    int width;
-    int height;
-    int tempo;
-    char pac_file[MAX_FILENAME];
-    char ghost_files[MAX_GHOSTS][MAX_FILENAME];
-    int n_ghosts;
-    char board_lines[MAX_BOARD_HEIGHT][MAX_FILENAME]; // Linhas do tabuleiro
-    int n_board_lines;
-} level_data_t;
+
 
 FILE * debugfile;
 
@@ -402,9 +392,9 @@ int load_ghost(board_t* board) {
     return 0;
 }
 
-int load_level(board_t *board, int points) {
-    board->height = 5;
-    board->width = 20;
+int load_level(board_t *board, int points, level_data_t* level_data) {
+    board->height = level_data->height;
+    board->width = level_data->width;
     board->tempo = 10;
 
     board->n_ghosts = 2;
@@ -416,18 +406,38 @@ int load_level(board_t *board, int points) {
 
     sprintf(board->level_name, "Static Level");
 
-    for (int i = 0; i < board->height; i++) {
-        for (int j = 0; j < board->width; j++) {
-            if (i == 0 || j == 0 || j == (board->width - 1)) {
-                board->board[i * board->width + j].content = 'W';
-            }
-            else if (i == 4 && j == 8) {
-                board->board[i * board->width + j].content = ' ';
-                board->board[i * board->width + j].has_portal = 1;
-            }
-            else {
-                board->board[i * board->width + j].content = ' ';
-                board->board[i * board->width + j].has_dot = 1;
+    // Processar as linhas do tabuleiro do ficheiro
+    for (int i = 0; i < level_data->n_board_lines && i < board->height; i++) {
+        char* line = level_data->board_lines[i];
+        int line_len = strlen(line);
+        
+        for (int j = 0; j < line_len && j < board->width; j++) {
+            int idx = i * board->width + j;
+            char ch = line[j];
+            
+            // Inicializar valores padrão
+            board->board[idx].content = ' ';
+            board->board[idx].has_dot = 0;
+            board->board[idx].has_portal = 0;
+            
+            // Processar cada caractere
+            if (ch == 'X') {
+                board->board[idx].content = 'W';  // Parede
+            } else if (ch == 'o') {
+                board->board[idx].content = ' ';
+                board->board[idx].has_dot = 1;  // Dot
+            } else if (ch == '@') {
+                board->board[idx].content = ' ';
+                board->board[idx].has_portal = 1;  // Portal
+            } else if (ch == 'P') {
+                // Por agora, espaço vazio (depois colocamos o pacman aqui)
+                board->board[idx].content = ' ';
+            } else if (ch == 'M') {
+                // Por agora, espaço vazio (depois colocamos o ghost aqui)
+                board->board[idx].content = ' ';
+            } else if (ch == ' ') {
+                // Espaço vazio
+                board->board[idx].content = ' ';
             }
         }
     }
@@ -510,30 +520,36 @@ void print_board(board_t *board) {
 // Helper function para processar uma linha
 static void process_line(char* line, int line_num, level_data_t* level_data) {
      
+    // Tentar parsear DIM
     if (parse_dim_line(line, &level_data->width, &level_data->height) == 0) {
         printf("✓ Linha %d - DIM: %d x %d\n", line_num, level_data->width, level_data->height);
         return; // Encontrou DIM, sair
     }
 
-    if (line_num > 4) {
-        // Guardar linha do tabuleiro
-        if (level_data->n_board_lines < MAX_BOARD_HEIGHT) {
-            strncpy(level_data->board_lines[level_data->n_board_lines], 
-                   line, 
-                   MAX_FILENAME - 1);
-            level_data->board_lines[level_data->n_board_lines][MAX_FILENAME - 1] = '\0';
-            level_data->n_board_lines++;
-        }
-    } else {
+    // Verificar se é outro comando conhecido
+    if (strncmp(line, "TEMPO", 5) == 0 || 
+        strncmp(line, "PAC", 3) == 0 || 
+        strncmp(line, "MON", 3) == 0) {
         // É outro comando (TEMPO, PAC, MON) - por agora só imprimir
         printf("Linha %d: [%s]\n", line_num, line);
+        return;
+    }
+
+    // Se não é nenhum comando conhecido, é uma linha do tabuleiro
+    if (level_data->n_board_lines < MAX_BOARD_HEIGHT) {
+        strncpy(level_data->board_lines[level_data->n_board_lines], 
+               line, 
+               MAX_FILENAME - 1);
+        level_data->board_lines[level_data->n_board_lines][MAX_FILENAME - 1] = '\0';
+        level_data->n_board_lines++;
+        printf("✓ Linha %d - Tabuleiro: [%s]\n", line_num, line);
     }
 }
 
-int test_read_level_file(char* level_directory, char* level_name) {
+int parse_level_file(char* level_directory, char* level_name, level_data_t* level_data) {
     // Criar estrutura para guardar dados parseados
-    level_data_t level_data;
-    memset(&level_data, 0, sizeof(level_data_t)); // Inicializar a zero
+   
+    memset(level_data, 0, sizeof(level_data_t)); // Inicializar a zero
     
     char level_path[512];
     snprintf(level_path, sizeof(level_path), "%s/%s.lvl", 
@@ -568,7 +584,7 @@ int test_read_level_file(char* level_directory, char* level_name) {
             
             if (current > line_start) {
                 line_num++;
-                process_line(line_start, line_num, &level_data);
+                process_line(line_start, line_num, level_data);
             }
             
             line_start = current + 1;
@@ -579,11 +595,11 @@ int test_read_level_file(char* level_directory, char* level_name) {
     // Processar última linha (se não terminar com \n)
     if (current > line_start) {
         line_num++;
-        process_line(line_start, line_num, &level_data);
+        process_line(line_start, line_num, level_data);
     }   
     close(fd);
     printf("\n✓ Ficheiro lido completamente!\n");
-    printf("Dimensões parseadas: %d x %d\n", level_data.width, level_data.height);
-    printf("Linhas do tabuleiro: %d\n", level_data.n_board_lines);
+    printf("Dimensões parseadas: %d x %d\n", level_data->width, level_data->height);
+    printf("Linhas do tabuleiro: %d\n", level_data->n_board_lines);
     return 0;
 }
