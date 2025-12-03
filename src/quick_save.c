@@ -14,6 +14,8 @@
 
 // Variável global para guardar o PID do processo de backup
 static pid_t backup_pid = -1;
+// Flag para indicar se este processo é o backup
+static int is_backup = 0;
 
 void screen_refresh(board_t * game_board, int mode) {
     debug("REFRESH\n");
@@ -24,17 +26,25 @@ void screen_refresh(board_t * game_board, int mode) {
 }
 
 int play_board(board_t * game_board) {
+    debug("PLAY_BOARD: Function called\n");
+    
     pacman_t* pacman = &game_board->pacmans[0];
+    
+    debug("PLAY_BOARD: pacman->n_moves = %d\n", pacman->n_moves);
+    
     command_t* play;
-    if (pacman->n_moves == 0) { // if is user input
+    if (pacman->n_moves == 0) {
+        debug("PLAY_BOARD: Getting user input...\n");
         command_t c; 
         c.command = get_input();
+        
+        debug("PLAY_BOARD: get_input() returned: '%c' (0x%02x)\n", c.command ? c.command : '?', (unsigned char)c.command);
 
         if(c.command == '\0')
             return CONTINUE_PLAY;
 
-        // Quick save com tecla 'G'
-        if(c.command == 'G') {
+        // Quick save com tecla 'G' - apenas se não for processo de backup
+        if(c.command == 'G' && !is_backup) {
             return CREATE_BACKUP;
         }
 
@@ -108,11 +118,23 @@ int main(int argc, char** argv) {
         draw_board(&game_board, DRAW_MENU);
         refresh_screen();
 
+        // Se este processo é um backup que acabou de acordar
+        if(is_backup) {
+            debug("CHILD: Restarting game loop from saved state\n");
+        }
+
+        debug("MAIN: Entering inner game loop (while true)\n");
+
         while(true) {
+            debug("MAIN: Calling play_board()\n");
             int result = play_board(&game_board); 
 
-            // Handler para criar backup
-            if(result == CREATE_BACKUP) {
+            debug("MAIN: play_board() returned %d\n", result);
+
+            // Handler para criar backup - apenas no processo pai
+            if(result == CREATE_BACKUP && !is_backup) {
+                debug("PARENT: G key pressed, attempting to create backup...\n");
+                
                 // Verificar se já existe um backup
                 if(backup_pid != -1) {
                     // Verificar se o processo filho ainda existe
@@ -120,14 +142,17 @@ int main(int argc, char** argv) {
                     pid_t check = waitpid(backup_pid, &status, WNOHANG);
                     if(check == 0) {
                         // Processo filho ainda está a correr - já existe backup
-                        debug("Backup already exists, ignoring G key\n");
+                        debug("PARENT: Backup already exists (PID %d), ignoring G key\n", backup_pid);
                         continue;
                     } else {
                         // Processo filho terminou, pode criar novo backup
+                        debug("PARENT: Previous backup died, clearing backup_pid\n");
                         backup_pid = -1;
                     }
                 }
 
+                debug("PARENT: Creating new backup process with fork()...\n");
+                
                 // Criar novo processo de backup
                 backup_pid = fork();
                 
@@ -137,19 +162,38 @@ int main(int argc, char** argv) {
                     continue;
                 }
                 else if(backup_pid == 0) {
-                    // PROCESSO FILHO - Guarda o estado e fica em pausa
-                    debug("CHILD: Backup created, waiting...\n");
+                    // PROCESSO FILHO - Guarda o estado e fica suspenso
+                    is_backup = 1;
+                    backup_pid = -1;
                     
-                    // O estado do jogo já está na memória do processo filho
-                    // devido ao fork() que copiou todo o espaço de endereçamento
+                    debug("CHILD: Backup created with PID %d, suspending with SIGSTOP...\n", getpid());
+                    fflush(NULL);
                     
-                    // Ficar em pausa infinita até ser terminado ou receber sinal
-                    while(1) {
-                        pause(); // Espera por sinal
-                    }
+                    // Suspender o processo até receber SIGCONT
+                    raise(SIGSTOP);
                     
-                    // Nunca chega aqui, mas por segurança:
-                    exit(0);
+                    // Quando acordar (via SIGCONT), continua EXATAMENTE daqui
+                    debug("CHILD: ====== ACORDEI! ====== PID %d\n", getpid());
+                    debug("CHILD: Resumed from backup, continuing from saved position...\n");
+                    
+                    // IMPORTANTE: Forçar modo blocking no getch()
+                    nodelay(stdscr, FALSE);  // Desativar non-blocking
+                    timeout(-1);              // Timeout infinito
+                    
+                    // Ressuscitar o Pacman
+                    game_board.pacmans[0].alive = true;
+                    debug("CHILD: Pacman marked as alive\n");
+                    
+                    // Redesenhar o ecrã no estado GUARDADO
+                    debug("CHILD: About to redraw screen...\n");
+                    clear();
+                    draw_board(&game_board, DRAW_MENU);
+                    refresh_screen();
+                    
+                    debug("CHILD: Screen redrawn in BLOCKING mode, resuming gameplay...\n");
+                    
+                    // Continuar o loop
+                    continue;
                 }
                 else {
                     // PROCESSO PAI - Continua o jogo normalmente
@@ -161,8 +205,9 @@ int main(int argc, char** argv) {
 
             if(result == NEXT_LEVEL) {
                 // Terminar processo de backup se existir
-                if(backup_pid != -1) {
-                    kill(backup_pid, SIGTERM);
+                if(backup_pid != -1 && !is_backup) {
+                    debug("PARENT: Next level, killing backup process %d\n", backup_pid);
+                    kill(backup_pid, SIGKILL);
                     waitpid(backup_pid, NULL, 0);
                     backup_pid = -1;
                 }
@@ -173,25 +218,29 @@ int main(int argc, char** argv) {
             }
 
             if(result == QUIT_GAME) {
-                // Se morreu e existe backup, restaurar do processo filho
-                if(backup_pid != -1) {
-                    debug("PARENT: Pacman died, restoring from backup\n");
+                // Se morreu e existe backup, acordar o processo filho
+                if(backup_pid != -1 && !is_backup) {
+                    debug("PARENT: Pacman died, waking backup process %d\n", backup_pid);
+                    fflush(NULL); // Forçar escrita
                     
-                    // Terminar o processo pai (atual)
-                    // O processo filho vai continuar e tornar-se o processo principal
-                    
-                    // Limpar recursos do processo pai
-                    unload_level(&game_board);
-                    terminal_cleanup();
-                    close_debug_file();
-                    
-                    // Acordar o processo filho para que ele continue
+                    // Acordar o processo filho
                     kill(backup_pid, SIGCONT);
                     
-                    // Terminar o processo pai
+                    debug("PARENT: Sent SIGCONT to backup, now terminating parent process\n");
+                    fflush(NULL);
+                    
+                    // Pequeno delay para garantir que o sinal foi recebido
+                    sleep_ms(100); // 100ms
+                    
+                    // Limpar apenas a memória do jogo
+                    unload_level(&game_board);
+                    close_debug_file();
+                    
+                    // Terminar o processo pai SEM fechar o terminal
                     exit(0);
                 }
                 
+                // Se não há backup ou se este é o backup que morreu
                 screen_refresh(&game_board, DRAW_GAME_OVER); 
                 sleep_ms(game_board.tempo);
                 end_game = true;
@@ -202,15 +251,18 @@ int main(int argc, char** argv) {
 
             accumulated_points = game_board.pacmans[0].points;      
         }
+        
+        debug("MAIN: Exited inner loop, cleaning up\n");
         print_board(&game_board);
         unload_level(&game_board);
     }    
 
     // Limpar processo de backup se ainda existir
     if(backup_pid != -1) {
-        kill(backup_pid, SIGTERM);
+        debug("Cleaning up backup process %d\n", backup_pid);
+        kill(backup_pid, SIGKILL);
         waitpid(backup_pid, NULL, 0);
-    }
+    }    
 
     terminal_cleanup();
 
