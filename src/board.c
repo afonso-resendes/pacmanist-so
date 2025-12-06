@@ -46,6 +46,72 @@ static int parse_dim_line(char* line, int* width, int* height) {
     return 0; 
 }
 
+static int parse_tempo_line(char* line, int* tempo) {
+    if (strncmp(line, "TEMPO", 5) != 0) {
+        return -1;
+    }
+
+    if (sscanf(line, "TEMPO %d", tempo) != 1) {
+        return -1; // Invalid format
+    }
+
+    return 0;
+}
+
+static int parse_pac_line(char* line, char* pac_file) {
+    if (strncmp(line, "PAC", 3) != 0) {
+        return -1;
+    }
+    if (sscanf(line, "PAC %s", pac_file) != 1) {
+        return -1; // Invalid format
+    }
+
+    return 0;
+}
+
+static int parse_mon_line(char* line, char ghost_files [][MAX_FILENAME], int* n_ghosts) {
+    if (strncmp(line, "MON", 3) != 0) {
+        return -1;
+    }
+
+    char* start = line + 3;
+
+    while (*start == ' ' || *start == '\t') {
+        start++;
+    }
+
+    if (*start == '\0') {
+        return -1; // Invalid format
+    }
+
+    *n_ghosts = 0;
+    char* token = start;
+
+    while (*token != '\0' && *n_ghosts < MAX_GHOSTS) {
+
+        while(*token == ' '|| *token == '\t') {
+            token++;
+        }
+
+        if (*token == '\0') {
+            break;
+        }
+        
+        int i = 0;
+        while (*token != '\0' && *token != ' ' && *token != '\t' && i < MAX_FILENAME - 1) {
+            ghost_files[*n_ghosts][i] = *token;
+            i++;
+            token++;
+        }
+        ghost_files[*n_ghosts][i] = '\0';
+        (*n_ghosts)++;
+    }
+    if (*n_ghosts == 0) {
+        return -1; // Invalid format
+    }
+    return 0;      
+}
+
 void sleep_ms(int milliseconds) {
     struct timespec ts;
     ts.tv_sec = milliseconds / 1000;
@@ -395,14 +461,27 @@ int load_ghost(board_t* board) {
 int load_level(board_t *board, int points, level_data_t* level_data) {
     board->height = level_data->height;
     board->width = level_data->width;
-    board->tempo = 10;
+    board->tempo = level_data->tempo;
 
-    board->n_ghosts = 2;
+    if (level_data->pac_file[0] != '\0') {
+        strncpy(board->pacman_file, level_data->pac_file, sizeof(board->pacman_file) - 1);
+        board->pacman_file[sizeof(board->pacman_file) - 1] = '\0';
+    } else {
+       board->pacman_file[0] = '\0';
+    }
+   
+
+    board->n_ghosts = level_data->n_ghosts;
     board->n_pacmans = 1;
 
     board->board = calloc(board->width * board->height, sizeof(board_pos_t));
     board->pacmans = calloc(board->n_pacmans, sizeof(pacman_t));
     board->ghosts = calloc(board->n_ghosts, sizeof(ghost_t));
+
+    for (int i = 0; i < board->n_ghosts && i < MAX_GHOSTS; i++) {
+        strncpy(board->ghosts_files[i], level_data->ghost_files[i], sizeof(board->ghosts_files[i]) - 1);
+        board->ghosts_files[i][sizeof(board->ghosts_files[i]) -1] = '\0';
+    }
 
     sprintf(board->level_name, "Static Level");
 
@@ -520,18 +599,30 @@ void print_board(board_t *board) {
 // Helper function para processar uma linha
 static void process_line(char* line, int line_num, level_data_t* level_data) {
      
+    if (line[0] == "#") {
+        return;
+    }
     // Tentar parsear DIM
     if (parse_dim_line(line, &level_data->width, &level_data->height) == 0) {
         printf("✓ Linha %d - DIM: %d x %d\n", line_num, level_data->width, level_data->height);
         return; // Encontrou DIM, sair
     }
 
-    // Verificar se é outro comando conhecido
-    if (strncmp(line, "TEMPO", 5) == 0 || 
-        strncmp(line, "PAC", 3) == 0 || 
-        strncmp(line, "MON", 3) == 0) {
-        // É outro comando (TEMPO, PAC, MON) - por agora só imprimir
-        printf("Linha %d: [%s]\n", line_num, line);
+    if (parse_tempo_line(line, &level_data->tempo) == 0) {
+        printf("✓ Linha %d - TEMPO: %d\n", line_num, level_data->tempo);
+        return;
+    }
+
+    if (parse_pac_line(line, level_data->pac_file) == 0) {
+        printf("✓ Linha %d - PAC: %s\n", line_num, level_data->pac_file);
+        return;
+    }
+
+    if (parse_mon_line(line, level_data->ghost_files,&level_data->n_ghosts) == 0) {
+        printf("✓ Linha %d - MON: %d ficheiros\n", line_num, level_data->n_ghosts);
+        for (int i = 0; i < level_data->n_ghosts; i++) {
+            printf("  - %s\n", level_data->ghost_files[i]);
+        }
         return;
     }
 
