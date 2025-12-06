@@ -599,7 +599,7 @@ void print_board(board_t *board) {
 // Helper function para processar uma linha
 static void process_line(char* line, int line_num, level_data_t* level_data) {
      
-    if (line[0] == "#") {
+    if (line[0] == '#') {
         return;
     }
     // Tentar parsear DIM
