@@ -6,7 +6,7 @@
 #include <fcntl.h>      // Para open(), O_RDONLY
 #include <stdarg.h>
 #include <string.h> 
-
+#include <stdbool.h> 
 
 
 FILE * debugfile;
@@ -69,7 +69,7 @@ static int parse_pac_line(char* line, char* pac_file) {
     return 0;
 }
 
-static int parse_mon_line(char* line, char ghost_files [][MAX_FILENAME], int* n_ghosts) {
+static int parse_mon_line(char* line, char ghost_files[][MAX_FILENAME], int* n_ghosts) {
     if (strncmp(line, "MON", 3) != 0) {
         return -1;
     }
@@ -110,6 +110,107 @@ static int parse_mon_line(char* line, char ghost_files [][MAX_FILENAME], int* n_
         return -1; // Invalid format
     }
     return 0;      
+}
+
+int parse_monster_file(char* level_directory, char* monster_file, ghost_t* ghost) {
+
+    char file_path[512];
+    snprintf(file_path, sizeof(file_path), "%s/%s", level_directory, monster_file);
+
+    int fd = open(file_path, O_RDONLY);
+    if (fd <0) {
+         printf("ERRO: Não consegui abrir ficheiro de monstro: %s\n", file_path);
+        return -1;
+    }
+    char buffer[4096];
+    ssize_t total_bytes = read(fd, buffer, sizeof(buffer) -1);
+    if (total_bytes < 0) {
+        close(fd);
+        return -1;
+    }
+
+    buffer[total_bytes] ='\0';
+    close(fd);
+    
+    // IMPORTANTE: Inicializar pos_x e pos_y ANTES de qualquer outra coisa
+    ghost->pos_x = -1; 
+    ghost->pos_y = -1;
+    ghost->passo = 0;
+    ghost->waiting = 0;
+    ghost->current_move = 0;
+    ghost->n_moves = 0;
+    ghost->charged = 0; 
+
+    // Parsear linha por linha
+    char* line_start = buffer;
+    char* current = buffer;
+    bool found_passo = false;
+    bool found_pos = false;
+    bool in_commands = false; // Flag para saber se já passámos PASSO e POS
+    
+    while (*current != '\0') {
+        if (*current == '\n') {
+            *current = '\0';
+            
+            if (current > line_start) {
+                // Ignorar linhas vazias e comentários (começadas com #)
+                if (line_start[0] == '\0' || line_start[0] == '#') {
+                    line_start = current + 1;
+                    current++;  // Avançar current antes do continue
+                    continue;
+                }
+                
+                // Parsear PASSO (só no início, antes dos comandos)
+                if (strncmp(line_start, "PASSO", 5) == 0 && !found_passo && !in_commands) {
+                    if (sscanf(line_start, "PASSO %d", &ghost->passo) == 1) {
+                        found_passo = true;
+                    }
+                }
+                // Parsear POS (só no início, antes dos comandos)
+                else if (strncmp(line_start, "POS", 3) == 0 && !found_pos && !in_commands) {
+                    int row, col;
+                    if (sscanf(line_start, "POS %d %d", &row, &col) == 2) {
+                        ghost->pos_y = row;
+                        ghost->pos_x = col;
+                        found_pos = true;
+                    }
+                }
+                // Comandos de movimento (após PASSO e POS, ou se não existirem)
+                else {
+                    in_commands = true; // A partir daqui são comandos
+                    
+                    // Parsear comando: formato "COMANDO N" ou apenas "COMANDO"
+                    char cmd = '\0';
+                    int turns = 1;
+                    
+                    // Tentar ler comando com número (ex: "D 8", "T 5")
+                    if (sscanf(line_start, "%c %d", &cmd, &turns) == 2) {
+                        // Comando com número de turns
+                        if (ghost->n_moves < MAX_MOVES) {
+                            ghost->moves[ghost->n_moves].command = cmd;
+                            ghost->moves[ghost->n_moves].turns = turns;
+                            ghost->moves[ghost->n_moves].turns_left = turns;
+                            ghost->n_moves++;
+                        }
+                    } 
+                    // Tentar ler apenas comando (ex: "R", "C")
+                    else if (sscanf(line_start, "%c", &cmd) == 1) {
+                        if (ghost->n_moves < MAX_MOVES) {
+                            ghost->moves[ghost->n_moves].command = cmd;
+                            ghost->moves[ghost->n_moves].turns = 1;
+                            ghost->moves[ghost->n_moves].turns_left = 1;
+                            ghost->n_moves++;
+                        }
+                    }
+                }
+            }
+            
+            line_start = current + 1;
+        }
+        current++;
+    }
+
+    return 0;
 }
 
 void sleep_ms(int milliseconds) {
@@ -322,12 +423,14 @@ int move_ghost(board_t* board, int ghost_index, command_t* command) {
     int new_x = ghost->pos_x;
     int new_y = ghost->pos_y;
 
-    // check passo
-    if (ghost->waiting > 0) {
-        ghost->waiting -= 1;
-        return VALID_MOVE;
+    // check passo - só aplicar a comandos de movimento, não a T ou C
+    if (command->command != 'T' && command->command != 'C') {
+        if (ghost->waiting > 0) {
+            ghost->waiting -= 1;
+            return VALID_MOVE;
+        }
+        ghost->waiting = ghost->passo;
     }
-    ghost->waiting = ghost->passo;
 
     char direction = command->command;
     
@@ -366,7 +469,12 @@ int move_ghost(board_t* board, int ghost_index, command_t* command) {
     }
 
     // Logic for the WASD movement
-    ghost->current_move++;
+    // Decrementar turns_left e só avançar para próximo comando quando chegar a 0
+    command->turns_left--;
+    if (command->turns_left <= 0) {
+        ghost->current_move++;
+        command->turns_left = command->turns;  // Reset para o próximo ciclo
+    }
     if (ghost->charged)
         return move_ghost_charged(board, ghost_index, direction);
 
@@ -425,7 +533,7 @@ int load_pacman(board_t* board, int points) {
     return 0;
 }
 
-// Static Loading
+/* // Static Loading
 int load_ghost(board_t* board) {
     // Ghost 0
     board->board[3 * board->width + 1].content = 'M'; // Monster
@@ -456,9 +564,34 @@ int load_ghost(board_t* board) {
     board->ghosts[1].moves[0].turns = 1; 
     
     return 0;
+} */
+
+int load_ghost(board_t* board, char* level_directory) {
+
+    if (board->n_ghosts == 0) {
+        return 0;
+    }
+
+    for (int i = 0; i < board->n_ghosts && i < MAX_GHOSTS; i++) {
+        if (board->ghosts_files[i][0] != '\0') {
+
+            if (parse_monster_file(level_directory, board->ghosts_files[i], &board->ghosts[i]) != 0) {
+               printf("ERRO: Não consegui carregar monstro %s\n", board->ghosts_files[i]);
+                return -1;
+            }
+            
+            if (board->ghosts[i].pos_x >= 0 && board->ghosts[i].pos_y >= 0) {
+                int idx = board->ghosts[i].pos_y * board->width + board->ghosts[i].pos_x;
+                if (idx >= 0 && idx < board->width * board->height) {
+                    board->board[idx].content = 'M';
+                }
+            }
+        }
+    }
+    return 0;
 }
 
-int load_level(board_t *board, int points, level_data_t* level_data) {
+int load_level(board_t *board, int points, level_data_t* level_data, char* level_directory) {
     board->height = level_data->height;
     board->width = level_data->width;
     board->tempo = level_data->tempo;
@@ -521,7 +654,7 @@ int load_level(board_t *board, int points, level_data_t* level_data) {
         }
     }
 
-    load_ghost(board);
+    load_ghost(board, level_directory);  // Passar level_directory
     load_pacman(board, points);
 
     return 0;

@@ -92,13 +92,13 @@ int main(int argc, char** argv) {
     board_t game_board;
 
     level_data_t level_data;
-    if (parse_level_file(level_directory, "1", &level_data) != 0) {
+    if (parse_level_file(level_directory, "3", &level_data) != 0) {  // Mudar "1" para "3"
         printf("ERRO: Não consegui carregar o nível!\n");
         return 1;
     }
 
     while (!end_game) {
-        load_level(&game_board, accumulated_points, &level_data);
+        load_level(&game_board, accumulated_points, &level_data, level_directory);
         draw_board(&game_board, DRAW_MENU);
         refresh_screen();
 
