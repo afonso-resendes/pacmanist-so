@@ -694,7 +694,7 @@ int load_pacman(board_t* board, int points, char* level_directory) {
 
 
 
-int load_ghost(board_t* board, char* level_directory) {
+int load_ghost(board_t* board, char* level_directory, level_data_t* level_data) {
 
     if (board->n_ghosts == 0) {
         return 0;
@@ -709,9 +709,29 @@ int load_ghost(board_t* board, char* level_directory) {
             }
             
             if (board->ghosts[i].pos_x >= 0 && board->ghosts[i].pos_y >= 0) {
+                // POS foi especificado no ficheiro .m
                 int idx = board->ghosts[i].pos_y * board->width + board->ghosts[i].pos_x;
                 if (idx >= 0 && idx < board->width * board->height) {
                     board->board[idx].content = 'M';
+                }
+            } else {
+                // POS não foi especificado, procurar 'M' no layout original do tabuleiro
+                for (int y = 0; y < level_data->n_board_lines; y++) {
+                    char* line = level_data->board_lines[y];
+                    size_t line_len = strlen(line);
+                    for (int x = 0; x < (int)line_len && x < board->width; x++) {
+                        if (line[x] == 'M') {
+                            // Encontrou 'M' no layout, colocar monstro aqui
+                            int idx = y * board->width + x;
+                            if (idx >= 0 && idx < board->width * board->height) {
+                                board->board[idx].content = 'M';
+                                board->ghosts[i].pos_x = x;
+                                board->ghosts[i].pos_y = y;
+                                break; // Encontrou, sair do loop interno
+                            }
+                        }
+                    }
+                    if (board->ghosts[i].pos_x >= 0) break; // Já encontrou, sair do loop externo
                 }
             }
         }
@@ -744,7 +764,7 @@ int load_level(board_t *board, int points, level_data_t* level_data, char* level
         board->ghosts_files[i][sizeof(board->ghosts_files[i]) -1] = '\0';
     }
 
-    sprintf(board->level_name, "Static Level");
+    sprintf(board->level_name, "Level %s", level_data->level_name);
 
     // Processar as linhas do tabuleiro do ficheiro
     for (int i = 0; i < level_data->n_board_lines && i < board->height; i++) {
@@ -782,7 +802,7 @@ int load_level(board_t *board, int points, level_data_t* level_data, char* level
         }
     }
 
-    load_ghost(board, level_directory);
+    load_ghost(board, level_directory, level_data);
     load_pacman(board, points, level_directory);  // Adicionar level_directory
 
     return 0;
@@ -902,6 +922,8 @@ int parse_level_file(char* level_directory, char* level_name, level_data_t* leve
     // Criar estrutura para guardar dados parseados
    
     memset(level_data, 0, sizeof(level_data_t)); // Inicializar a zero
+
+    strncpy(level_data->level_name, level_name, sizeof(level_data->level_name) -1);
     
     char level_path[512];
     snprintf(level_path, sizeof(level_path), "%s/%s.lvl", 

@@ -1,3 +1,4 @@
+PASSO 1
+POS 4 1
 D 8
 A 8
-

@@ -91,8 +91,12 @@ int main(int argc, char** argv) {
     bool end_game = false;
     board_t game_board;
 
+    int current_level = 1;
+    char level_name[32];
+
     level_data_t level_data;
-    if (parse_level_file(level_directory, "3", &level_data) != 0) {  // Mudar "1" para "3"
+     snprintf(level_name, sizeof(level_name), "%d", current_level);
+    if (parse_level_file(level_directory, level_name, &level_data) != 0) {  // Mudar "1" para "3"
         printf("ERRO: Não consegui carregar o nível!\n");
         return 1;
     }

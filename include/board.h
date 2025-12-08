@@ -70,6 +70,7 @@ typedef struct {
     int n_ghosts;
     char board_lines[MAX_BOARD_HEIGHT][MAX_FILENAME]; // Linhas do tabuleiro
     int n_board_lines;
+    char level_name[32];
 } level_data_t;
 
 /*Makes the current thread sleep for 'int milliseconds' miliseconds*/
@@ -88,7 +89,7 @@ void kill_pacman(board_t* board, int pacman_index);
 int load_pacman(board_t* board, int points, char* level_directory);
 
 /*Adds a ghost(monster) to the board*/
-int load_ghost(board_t* board, char* level_directory);
+int load_ghost(board_t* board, char* level_directory, level_data_t* level_data);
 
 /*Loads a level into board*/
 int load_level(board_t* board, int accumulated_points, level_data_t* level_data, char* level_directory);

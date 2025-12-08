@@ -1,11 +1,10 @@
 DIM 6 6
-TEMPO 10
+TEMPO 1000
 PAC 1.p
-MON 1.m 3.m
+MON 1.m
 XXoXXX
 XoooXX
 XoXoXX
 Xooo@X
 XooooX
 XXXXXX
-
