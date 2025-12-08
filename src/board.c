@@ -213,6 +213,108 @@ int parse_monster_file(char* level_directory, char* monster_file, ghost_t* ghost
     return 0;
 }
 
+int parse_pacman_file(char* level_directory, char* pacman_file, pacman_t* pacman) {
+
+    char file_path[512];
+    snprintf(file_path, sizeof(file_path), "%s/%s", level_directory, pacman_file);
+
+    int fd = open(file_path, O_RDONLY);
+    if (fd < 0) {
+        printf("ERRO: Não consegui abrir ficheiro de pacman: %s\n", file_path);
+        return -1;
+    }
+    char buffer[4096];
+    ssize_t total_bytes = read(fd, buffer, sizeof(buffer) - 1);
+    if (total_bytes < 0) {
+        close(fd);
+        return -1;
+    }
+
+    buffer[total_bytes] = '\0';
+    close(fd);
+    
+    // IMPORTANTE: Inicializar pos_x e pos_y ANTES de qualquer outra coisa
+    pacman->pos_x = -1; 
+    pacman->pos_y = -1;
+    pacman->passo = 0;
+    pacman->waiting = 0;
+    pacman->current_move = 0;
+    pacman->n_moves = 0;
+    pacman->alive = 1;  // Pacman começa vivo
+    // points não é inicializado aqui, será definido em load_pacman()
+
+    // Parsear linha por linha
+    char* line_start = buffer;
+    char* current = buffer;
+    bool found_passo = false;
+    bool found_pos = false;
+    bool in_commands = false; // Flag para saber se já passámos PASSO e POS
+    
+    while (*current != '\0') {
+        if (*current == '\n') {
+            *current = '\0';
+            
+            if (current > line_start) {
+                // Ignorar linhas vazias e comentários (começadas com #)
+                if (line_start[0] == '\0' || line_start[0] == '#') {
+                    line_start = current + 1;
+                    current++;  // Avançar current antes do continue
+                    continue;
+                }
+                
+                // Parsear PASSO (só no início, antes dos comandos)
+                if (strncmp(line_start, "PASSO", 5) == 0 && !found_passo && !in_commands) {
+                    if (sscanf(line_start, "PASSO %d", &pacman->passo) == 1) {
+                        found_passo = true;
+                    }
+                }
+                // Parsear POS (só no início, antes dos comandos)
+                else if (strncmp(line_start, "POS", 3) == 0 && !found_pos && !in_commands) {
+                    int row, col;
+                    if (sscanf(line_start, "POS %d %d", &row, &col) == 2) {
+                        pacman->pos_y = row;
+                        pacman->pos_x = col;
+                        found_pos = true;
+                    }
+                }
+                // Comandos de movimento (após PASSO e POS, ou se não existirem)
+                else {
+                    in_commands = true; // A partir daqui são comandos
+                    
+                    // Parsear comando: formato "COMANDO N" ou apenas "COMANDO"
+                    char cmd = '\0';
+                    int turns = 1;
+                    
+                    // Tentar ler comando com número (ex: "D 8", "T 5")
+                    if (sscanf(line_start, "%c %d", &cmd, &turns) == 2) {
+                        // Comando com número de turns
+                        if (pacman->n_moves < MAX_MOVES) {
+                            pacman->moves[pacman->n_moves].command = cmd;
+                            pacman->moves[pacman->n_moves].turns = turns;
+                            pacman->moves[pacman->n_moves].turns_left = turns;
+                            pacman->n_moves++;
+                        }
+                    } 
+                    // Tentar ler apenas comando (ex: "R")
+                    else if (sscanf(line_start, "%c", &cmd) == 1) {
+                        if (pacman->n_moves < MAX_MOVES) {
+                            pacman->moves[pacman->n_moves].command = cmd;
+                            pacman->moves[pacman->n_moves].turns = 1;
+                            pacman->moves[pacman->n_moves].turns_left = 1;
+                            pacman->n_moves++;
+                        }
+                    }
+                }
+            }
+            
+            line_start = current + 1;
+        }
+        current++;
+    }
+
+    return 0;
+}
+
 void sleep_ms(int milliseconds) {
     struct timespec ts;
     ts.tv_sec = milliseconds / 1000;
@@ -230,12 +332,14 @@ int move_pacman(board_t* board, int pacman_index, command_t* command) {
     int new_x = pac->pos_x;
     int new_y = pac->pos_y;
 
-    // check passo
-    if (pac->waiting > 0) {
-        pac->waiting -= 1;
-        return VALID_MOVE;        
+    // check passo - só aplicar a comandos de movimento, não a T
+    if (command->command != 'T') {
+        if (pac->waiting > 0) {
+            pac->waiting -= 1;
+            return VALID_MOVE;        
+        }
+        pac->waiting = pac->passo;
     }
-    pac->waiting = pac->passo;
 
     char direction = command->command;
 
@@ -270,7 +374,12 @@ int move_pacman(board_t* board, int pacman_index, command_t* command) {
     }
 
     // Logic for the WASD movement
-    pac->current_move+=1;
+    // Decrementar turns_left e só avançar para próximo comando quando chegar a 0
+    command->turns_left--;
+    if (command->turns_left <= 0) {
+        pac->current_move++;
+        command->turns_left = command->turns;  // Reset para o próximo ciclo
+    }
 
     // Check boundaries
     if (!is_valid_position(board, new_x, new_y)) {
@@ -524,47 +633,66 @@ void kill_pacman(board_t* board, int pacman_index) {
 }
 
 // Static Loading
-int load_pacman(board_t* board, int points) {
-    board->board[1 * board->width + 1].content = 'P'; // Pacman
-    board->pacmans[0].pos_x = 1;
-    board->pacmans[0].pos_y = 1;
-    board->pacmans[0].alive = 1;
-    board->pacmans[0].points = points;
+int load_pacman(board_t* board, int points, char* level_directory) {
+    pacman_t* pac = &board->pacmans[0];
+    
+    // Se existe ficheiro .p, fazer parsing dinâmico
+    if (board->pacman_file[0] != '\0') {
+        if (parse_pacman_file(level_directory, board->pacman_file, pac) != 0) {
+            printf("ERRO: Não consegui carregar pacman %s\n", board->pacman_file);
+            return -1;
+        }
+        
+        // Se POS foi especificado, colocar Pacman nessa posição
+        if (pac->pos_x >= 0 && pac->pos_y >= 0) {
+            int idx = pac->pos_y * board->width + pac->pos_x;
+            if (idx >= 0 && idx < board->width * board->height) {
+                board->board[idx].content = 'P';
+                // Coletar ponto se existir na posição inicial
+                if (board->board[idx].has_dot) {
+                    pac->points++;
+                    board->board[idx].has_dot = 0;
+                }
+            }
+        } else {
+            // Se POS não foi especificado, procurar 'P' no tabuleiro
+            // (implementar depois se necessário)
+            int idx = 1 * board->width + 1;
+            board->board[idx].content = 'P'; // Fallback
+            pac->pos_x = 1;
+            pac->pos_y = 1;
+            // Coletar ponto se existir na posição inicial
+            if (board->board[idx].has_dot) {
+                pac->points++;
+                board->board[idx].has_dot = 0;
+            }
+        }
+    } else {
+        // Sem ficheiro .p, usar posição padrão (controlo manual)
+        int idx = 1 * board->width + 1;
+        board->board[idx].content = 'P';
+        pac->pos_x = 1;
+        pac->pos_y = 1;
+        pac->n_moves = 0; // Controlo manual
+        // Coletar ponto se existir na posição inicial
+        if (board->board[idx].has_dot) {
+            pac->points++;
+            board->board[idx].has_dot = 0;
+        }
+    }
+    
+    pac->alive = 1;
+    pac->points = points;
+    
+    // Inicializar waiting com passo para que o Pacman espere antes do primeiro movimento
+    if (pac->n_moves > 0) {
+        pac->waiting = pac->passo;
+    }
+    
     return 0;
 }
 
-/* // Static Loading
-int load_ghost(board_t* board) {
-    // Ghost 0
-    board->board[3 * board->width + 1].content = 'M'; // Monster
-    board->ghosts[0].pos_x = 1;
-    board->ghosts[0].pos_y = 3;
-    board->ghosts[0].passo = 0;
-    board->ghosts[0].waiting = 0;
-    board->ghosts[0].current_move = 0;
-    board->ghosts[0].n_moves = 16;
-    for (int i = 0; i < 8; i++) {
-        board->ghosts[0].moves[i].command = 'D';
-        board->ghosts[0].moves[i].turns = 1; 
-    }
-    for (int i = 8; i < 16; i++) {
-        board->ghosts[0].moves[i].command = 'A';
-        board->ghosts[0].moves[i].turns = 1; 
-    }
 
-    // Ghost 1
-    board->board[2 * board->width + 4].content = 'M'; // Monster
-    board->ghosts[1].pos_x = 4;
-    board->ghosts[1].pos_y = 2;
-    board->ghosts[1].passo = 1;
-    board->ghosts[1].waiting = 1;
-    board->ghosts[1].current_move = 0;
-    board->ghosts[1].n_moves = 1;
-    board->ghosts[1].moves[0].command = 'R'; // Random
-    board->ghosts[1].moves[0].turns = 1; 
-    
-    return 0;
-} */
 
 int load_ghost(board_t* board, char* level_directory) {
 
@@ -654,8 +782,8 @@ int load_level(board_t *board, int points, level_data_t* level_data, char* level
         }
     }
 
-    load_ghost(board, level_directory);  // Passar level_directory
-    load_pacman(board, points);
+    load_ghost(board, level_directory);
+    load_pacman(board, points, level_directory);  // Adicionar level_directory
 
     return 0;
 }

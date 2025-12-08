@@ -85,7 +85,7 @@ int move_ghost(board_t* board, int ghost_index, command_t* command);
 void kill_pacman(board_t* board, int pacman_index);
 
 /*Adds a pacman to the board*/
-int load_pacman(board_t* board, int points);
+int load_pacman(board_t* board, int points, char* level_directory);
 
 /*Adds a ghost(monster) to the board*/
 int load_ghost(board_t* board, char* level_directory);
@@ -115,5 +115,8 @@ int parse_level_file(char* level_directory, char* level_name, level_data_t* leve
 
 /*Function to parse monster file (.m)*/
 int parse_monster_file(char* level_directory, char* monster_file, ghost_t* ghost);
+
+/*Function to parse pacman file (.p)*/
+int parse_pacman_file(char* level_directory, char* pacman_file, pacman_t* pacman);
 
 #endif
