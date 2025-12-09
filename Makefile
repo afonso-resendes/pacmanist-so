@@ -35,10 +35,21 @@ $(BIN_DIR)/$(TARGET): $(OBJS) | folders
 %.o: %.c $($@) | folders
 	$(CC) -I $(INCLUDE_DIR) $(CFLAGS) -o $(OBJ_DIR)/$@ -c $<
 
-# run the program (default to "levels" directory)
-ARGS ?= levels
+# run the program
+# Usage: make run levels
+#        make run test_levels
+# Captura o primeiro argumento após "run"
+DIR := $(word 2,$(MAKECMDGOALS))
 run: pacmanist
-	@./$(BIN_DIR)/$(TARGET) $(ARGS)
+	@if [ -z "$(DIR)" ]; then \
+		echo "ERRO: Deves especificar o diretório: make run <diretório>"; \
+		exit 1; \
+	fi
+	@./$(BIN_DIR)/$(TARGET) $(DIR)
+
+# Prevenir que o Make tente construir o diretório como target
+%:
+	@:
 
 # Create folders
 folders:

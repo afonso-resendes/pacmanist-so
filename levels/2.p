@@ -1,5 +1,5 @@
-D 3
-S 3
-A 3
-W 3
-
+# Pacman Nível 2 - Movimento para chegar ao portal
+PASSO 1
+POS 1 1
+S 7
+D 7

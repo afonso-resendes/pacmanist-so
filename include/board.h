@@ -89,7 +89,7 @@ void kill_pacman(board_t* board, int pacman_index);
 int load_pacman(board_t* board, int points, char* level_directory);
 
 /*Adds a ghost(monster) to the board*/
-int load_ghost(board_t* board, char* level_directory, level_data_t* level_data);
+int load_ghost(board_t* board, char* level_directory);
 
 /*Loads a level into board*/
 int load_level(board_t* board, int accumulated_points, level_data_t* level_data, char* level_directory);

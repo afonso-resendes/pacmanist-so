@@ -312,7 +312,7 @@ int parse_pacman_file(char* level_directory, char* pacman_file, pacman_t* pacman
         current++;
     }
 
-    return 0;
+    return 0; 
 }
 
 void sleep_ms(int milliseconds) {
@@ -334,11 +334,11 @@ int move_pacman(board_t* board, int pacman_index, command_t* command) {
 
     // check passo - só aplicar a comandos de movimento, não a T
     if (command->command != 'T') {
-        if (pac->waiting > 0) {
-            pac->waiting -= 1;
-            return VALID_MOVE;        
-        }
-        pac->waiting = pac->passo;
+    if (pac->waiting > 0) {
+        pac->waiting -= 1;
+        return VALID_MOVE;        
+    }
+    pac->waiting = pac->passo;
     }
 
     char direction = command->command;
@@ -534,11 +534,11 @@ int move_ghost(board_t* board, int ghost_index, command_t* command) {
 
     // check passo - só aplicar a comandos de movimento, não a T ou C
     if (command->command != 'T' && command->command != 'C') {
-        if (ghost->waiting > 0) {
-            ghost->waiting -= 1;
-            return VALID_MOVE;
-        }
-        ghost->waiting = ghost->passo;
+    if (ghost->waiting > 0) {
+        ghost->waiting -= 1;
+        return VALID_MOVE;
+    }
+    ghost->waiting = ghost->passo;
     }
 
     char direction = command->command;
@@ -581,7 +581,7 @@ int move_ghost(board_t* board, int ghost_index, command_t* command) {
     // Decrementar turns_left e só avançar para próximo comando quando chegar a 0
     command->turns_left--;
     if (command->turns_left <= 0) {
-        ghost->current_move++;
+    ghost->current_move++;
         command->turns_left = command->turns;  // Reset para o próximo ciclo
     }
     if (ghost->charged)
@@ -642,30 +642,28 @@ int load_pacman(board_t* board, int points, char* level_directory) {
             printf("ERRO: Não consegui carregar pacman %s\n", board->pacman_file);
             return -1;
         }
+
+        // Se existe ficheiro .p, POS também é obrigatório
+        if (pac->pos_x < 0 || pac->pos_y < 0) {
+            printf("ERRO: Ficheiro %s não contém comando POS (obrigatório quando ficheiro .p existe)\n", 
+                   board->pacman_file);
+            return -1;
+        }
         
-        // Se POS foi especificado, colocar Pacman nessa posição
-        if (pac->pos_x >= 0 && pac->pos_y >= 0) {
-            int idx = pac->pos_y * board->width + pac->pos_x;
-            if (idx >= 0 && idx < board->width * board->height) {
-                board->board[idx].content = 'P';
-                // Coletar ponto se existir na posição inicial
-                if (board->board[idx].has_dot) {
-                    pac->points++;
-                    board->board[idx].has_dot = 0;
-                }
-            }
-        } else {
-            // Se POS não foi especificado, procurar 'P' no tabuleiro
-            // (implementar depois se necessário)
-            int idx = 1 * board->width + 1;
-            board->board[idx].content = 'P'; // Fallback
-            pac->pos_x = 1;
-            pac->pos_y = 1;
-            // Coletar ponto se existir na posição inicial
-            if (board->board[idx].has_dot) {
-                pac->points++;
-                board->board[idx].has_dot = 0;
-            }
+        // Verificar se a posição é válida
+        int idx = pac->pos_y * board->width + pac->pos_x;
+        if (idx < 0 || idx >= board->width * board->height) {
+            printf("ERRO: Posição (%d, %d) do Pacman está fora dos limites do tabuleiro\n",
+                   pac->pos_y, pac->pos_x);
+            return -1;
+        }
+        
+        // Colocar Pacman na posição especificada
+        board->board[idx].content = 'P';
+        // Coletar ponto se existir na posição inicial
+        if (board->board[idx].has_dot) {
+            pac->points++;
+            board->board[idx].has_dot = 0;
         }
     } else {
         // Sem ficheiro .p, usar posição padrão (controlo manual)
@@ -694,7 +692,7 @@ int load_pacman(board_t* board, int points, char* level_directory) {
 
 
 
-int load_ghost(board_t* board, char* level_directory, level_data_t* level_data) {
+int load_ghost(board_t* board, char* level_directory) {
 
     if (board->n_ghosts == 0) {
         return 0;
@@ -708,32 +706,30 @@ int load_ghost(board_t* board, char* level_directory, level_data_t* level_data) 
                 return -1;
             }
             
-            if (board->ghosts[i].pos_x >= 0 && board->ghosts[i].pos_y >= 0) {
-                // POS foi especificado no ficheiro .m
-                int idx = board->ghosts[i].pos_y * board->width + board->ghosts[i].pos_x;
-                if (idx >= 0 && idx < board->width * board->height) {
-                    board->board[idx].content = 'M';
-                }
-            } else {
-                // POS não foi especificado, procurar 'M' no layout original do tabuleiro
-                for (int y = 0; y < level_data->n_board_lines; y++) {
-                    char* line = level_data->board_lines[y];
-                    size_t line_len = strlen(line);
-                    for (int x = 0; x < (int)line_len && x < board->width; x++) {
-                        if (line[x] == 'M') {
-                            // Encontrou 'M' no layout, colocar monstro aqui
-                            int idx = y * board->width + x;
-                            if (idx >= 0 && idx < board->width * board->height) {
-                                board->board[idx].content = 'M';
-                                board->ghosts[i].pos_x = x;
-                                board->ghosts[i].pos_y = y;
-                                break; // Encontrou, sair do loop interno
-                            }
-                        }
-                    }
-                    if (board->ghosts[i].pos_x >= 0) break; // Já encontrou, sair do loop externo
-                }
+            // POS é obrigatório para monstros
+            if (board->ghosts[i].pos_x < 0 || board->ghosts[i].pos_y < 0) {
+                printf("ERRO: Ficheiro %s não contém comando POS (obrigatório para monstros)\n", 
+                       board->ghosts_files[i]);
+                return -1;
             }
+            
+            // Verificar se a posição é válida
+            int idx = board->ghosts[i].pos_y * board->width + board->ghosts[i].pos_x;
+            if (idx < 0 || idx >= board->width * board->height) {
+                printf("ERRO: Posição (%d, %d) do monstro %s está fora dos limites do tabuleiro\n",
+                       board->ghosts[i].pos_y, board->ghosts[i].pos_x, board->ghosts_files[i]);
+                return -1;
+            }
+            
+            // Verificar se a posição já está ocupada por outro ghost
+            if (board->board[idx].content == 'M') {
+                printf("ERRO: Posição (%d, %d) já está ocupada por outro ghost\n", 
+                       board->ghosts[i].pos_y, board->ghosts[i].pos_x);
+                return -1;
+            }
+            
+            // Colocar o ghost na posição especificada
+            board->board[idx].content = 'M';
         }
     }
     return 0;
@@ -764,7 +760,7 @@ int load_level(board_t *board, int points, level_data_t* level_data, char* level
         board->ghosts_files[i][sizeof(board->ghosts_files[i]) -1] = '\0';
     }
 
-    sprintf(board->level_name, "Level %s", level_data->level_name);
+    sprintf(board->level_name, "%s", level_data->level_name);
 
     // Processar as linhas do tabuleiro do ficheiro
     for (int i = 0; i < level_data->n_board_lines && i < board->height; i++) {
@@ -802,7 +798,7 @@ int load_level(board_t *board, int points, level_data_t* level_data, char* level
         }
     }
 
-    load_ghost(board, level_directory, level_data);
+    load_ghost(board, level_directory);
     load_pacman(board, points, level_directory);  // Adicionar level_directory
 
     return 0;

@@ -1,13 +1,16 @@
-DIM 8 8
-TEMPO 15
+# Nível 2 - Múltiplos Monstros
+DIM 10 10
+TEMPO 200
 PAC 2.p
-MON 2.m
-XXXXXXXX
-XooooooX
-XoXoXoXoX
-XooooooX
-XoXoXoXoX
-XooooooX
-XooooooX
-XXXXXXXX
+MON 2a.m 2b.m
+XXXXXXXXXX
+XooooooooX
+XooooooooX
+XooooooooX
+XooooooooX
+XooooooooX
+XooooooooX
+XooooooooX
+Xoooooooo@X
+XXXXXXXXXX
 

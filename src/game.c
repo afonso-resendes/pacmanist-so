@@ -5,6 +5,9 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <dirent.h>      // Para opendir, readdir, closedir
+#include <string.h>      // Para strcmp, strlen, strncpy
+#include <ctype.h>       // Para isdigit
 
 #define CONTINUE_PLAY 0
 #define NEXT_LEVEL 1
@@ -75,6 +78,88 @@ int play_board(board_t * game_board) {
     return CONTINUE_PLAY;  
 }
 
+// Função auxiliar para comparar dois nomes de níveis (para ordenação)
+// Compara numericamente se ambos são números, senão alfabeticamente
+static int compare_level_names(const void* a, const void* b) {
+    const char* name1 = (const char*)a;
+    const char* name2 = (const char*)b;
+    
+    // Verificar se ambos são números (todos os caracteres são dígitos)
+    bool is_num1 = true;
+    bool is_num2 = true;
+    
+    for (int i = 0; name1[i] != '\0'; i++) {
+        if (!isdigit(name1[i])) {
+            is_num1 = false;
+            break;
+        }
+    }
+    
+    for (int i = 0; name2[i] != '\0'; i++) {
+        if (!isdigit(name2[i])) {
+            is_num2 = false;
+            break;
+        }
+    }
+    
+    // Se ambos são números, comparar numericamente
+    if (is_num1 && is_num2) {
+        int num1 = atoi(name1);
+        int num2 = atoi(name2);
+        return num1 - num2;
+    }
+    
+    // Senão, comparar alfabeticamente
+    return strcmp(name1, name2);
+}
+
+// Função para ordenar os níveis encontrados
+void sort_level_files(char level_names[][MAX_FILENAME], int n_levels) {
+    qsort(level_names, n_levels, MAX_FILENAME, compare_level_names);
+}
+
+// Função para listar todos os ficheiros .lvl no diretório
+// Retorna o número de níveis encontrados e preenche o array level_names
+// level_names: array onde serão guardados os nomes dos níveis (sem extensão .lvl)
+// Retorna: número de níveis encontrados, ou -1 em caso de erro
+int find_level_files(char* level_directory, char level_names[][MAX_FILENAME]) {
+    DIR* dir = opendir(level_directory);
+    if (dir == NULL) {
+        printf("ERRO: Não consegui abrir o diretório %s\n", level_directory);
+        return -1;
+    }
+    
+    int count = 0;
+    struct dirent* entry;
+    
+    // Ler todas as entradas do diretório
+    while ((entry = readdir(dir)) != NULL && count < MAX_LEVELS) {
+        char* name = entry->d_name;
+        size_t len = strlen(name);
+        
+        // Verificar se termina com .lvl (e tem pelo menos 5 caracteres: "x.lvl")
+        if (len > 4 && strcmp(name + len - 4, ".lvl") == 0) {
+            // Copiar o nome sem a extensão .lvl
+            size_t name_len = len - 4;  // Comprimento sem ".lvl"
+            if (name_len < MAX_FILENAME) {
+                strncpy(level_names[count], name, name_len);
+                level_names[count][name_len] = '\0';  // Garantir null-termination
+                count++;
+            }
+        }
+    }
+    
+    closedir(dir);
+    
+    if (count == 0) {
+        printf("AVISO: Não foram encontrados ficheiros .lvl no diretório %s\n", level_directory);
+        return 0;
+    }
+    
+    printf("✓ Encontrados %d ficheiro(s) .lvl\n", count);
+    return count;
+}
+
 int main(int argc, char** argv) {
     if (argc != 2) {
         printf("Usage: %s <level_directory>\n", argv[0]);
@@ -87,25 +172,52 @@ int main(int argc, char** argv) {
     open_debug_file("debug.log");
     terminal_init();
     
+    // Listar todos os ficheiros .lvl no diretório
+    char level_names[MAX_LEVELS][MAX_FILENAME];
+    int n_levels = find_level_files(level_directory, level_names);
+    
+    if (n_levels <= 0) {
+        printf("ERRO: Não foram encontrados níveis para carregar!\n");
+        terminal_cleanup();
+        close_debug_file();
+        return 1;
+    }
+    
+    // Ordenar os níveis encontrados
+    sort_level_files(level_names, n_levels);
+    
+    // Mostrar níveis encontrados (debug)
+    printf("Níveis encontrados (ordenados):\n");
+    for (int i = 0; i < n_levels; i++) {
+        printf("  %d. %s.lvl\n", i + 1, level_names[i]);
+    }
+    printf("\n");
+    
     int accumulated_points = 0;
     bool end_game = false;
     board_t game_board;
 
-    int current_level = 1;
-    char level_name[32];
-
-    level_data_t level_data;
-     snprintf(level_name, sizeof(level_name), "%d", current_level);
-    if (parse_level_file(level_directory, level_name, &level_data) != 0) {  // Mudar "1" para "3"
-        printf("ERRO: Não consegui carregar o nível!\n");
-        return 1;
-    }
-
-    while (!end_game) {
+    int current_level_index = 0;
+    
+    // Loop principal: carrega e joga cada nível sequencialmente
+    while (!end_game && current_level_index < n_levels) {
+        char level_name[32];
+        level_data_t level_data;
+        
+        // Carregar o nível atual
+        snprintf(level_name, sizeof(level_name), "%s", level_names[current_level_index]);
+        printf("=== Carregando nível: %s.lvl ===\n", level_name);
+        
+        if (parse_level_file(level_directory, level_name, &level_data) != 0) {
+            printf("ERRO: Não consegui carregar o nível %s!\n", level_name);
+            break;  // Sair se não conseguir carregar
+        }
+        
         load_level(&game_board, accumulated_points, &level_data, level_directory);
         draw_board(&game_board, DRAW_MENU);
         refresh_screen();
 
+        // Loop interno: jogar o nível atual
         while(true) {
             int result = play_board(&game_board); 
 
@@ -169,17 +281,34 @@ int main(int argc, char** argv) {
             }
 
             if(result == NEXT_LEVEL) {
-                // Se somos o filho e o pai está suspenso, matar o pai
-                if(playing_pid == -1 && is_backup == 0) {
-                    // Procurar processo pai
-                    pid_t parent = getppid();
-                    debug("CHILD: Next level, killing backup parent %d\n", parent);
-                    kill(parent, SIGKILL);
+                // Guardar pontos acumulados
+                accumulated_points = game_board.pacmans[0].points;
+                
+                // Só matar o pai se realmente existe um backup (processo pai suspenso)
+                // Se playing_pid != -1, significa que somos o pai (backup)
+                // Se playing_pid == -1 e is_backup == 0, somos o filho mas pode não haver backup
+                // Só matamos o pai se realmente criámos um backup antes
+                // NOTA: Esta lógica é do Exercício 2 (backup), não do Exercício 1
+                // Para o Exercício 1, podemos simplesmente remover esta parte
+                
+                // Avançar para o próximo nível
+                current_level_index++;
+                
+                // Verificar se há mais níveis
+                if (current_level_index >= n_levels) {
+                    // Último nível completado - mostrar VICTORY
+                    printf("✓ Todos os níveis completados!\n");
+                    screen_refresh(&game_board, DRAW_WIN);
+                    sleep_ms(game_board.tempo);
+                    end_game = true;
+                } else {
+                    // Ainda há mais níveis - apenas mostrar mensagem
+                    printf("✓ Nível %s completado! Avançando para o próximo...\n", level_name);
+                    // Limpar o ecrã antes de carregar o próximo nível
+                    clear();
                 }
                 
-                screen_refresh(&game_board, DRAW_WIN);
-                sleep_ms(game_board.tempo);
-                break;
+                break;  // Sair do loop interno para carregar próximo nível
             }
 
             if(result == QUIT_GAME) {
@@ -215,7 +344,13 @@ int main(int argc, char** argv) {
         
         print_board(&game_board);
         unload_level(&game_board);
-    }    
+    }
+    
+    // Se completou todos os níveis, mostrar mensagem final
+    if (current_level_index >= n_levels && !end_game) {
+        printf("🎉 Parabéns! Completaste todos os %d níveis!\n", n_levels);
+        printf("Pontos finais: %d\n", accumulated_points);
+    }
 
     terminal_cleanup();
     close_debug_file();

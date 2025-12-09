@@ -1,10 +1,14 @@
-DIM 6 6
-TEMPO 1000
+# Nível 1 - Tutorial (Simples)
+DIM 8 8
+TEMPO 300
 PAC 1.p
 MON 1.m
-XXoXXX
-XoooXX
-XoXoXX
-Xooo@X
-XooooX
-XXXXXX
+XXXXXXXX
+XooooooX
+XooooooX
+XooooooX
+XooooooX
+XooooooX
+Xoooooo@X
+XXXXXXXX
+

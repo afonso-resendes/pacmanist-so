@@ -1,4 +1,6 @@
-PASSO 1
-POS 4 1
-D 8
-A 8
+# Monstro 1 - Movimento lento horizontal
+PASSO 3
+POS 4 4
+D 4
+A 4
+
