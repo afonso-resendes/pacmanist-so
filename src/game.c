@@ -321,7 +321,7 @@ int main(int argc, char** argv) {
                         
                         // Filho termina (pai continua)
                         unload_level(&game_board);
-                        terminal_cleanup();
+
                         close_debug_file();
                         exit(0);
                     } else {
