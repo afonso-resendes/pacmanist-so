@@ -5,9 +5,9 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <signal.h>
-#include <dirent.h>      // Para opendir, readdir, closedir
-#include <string.h>      // Para strcmp, strlen, strncpy
-#include <ctype.h>       // Para isdigit
+#include <dirent.h>
+#include <string.h>
+#include <ctype.h>
 
 #define CONTINUE_PLAY 0
 #define NEXT_LEVEL 1
@@ -15,10 +15,8 @@
 #define LOAD_BACKUP 3
 #define CREATE_BACKUP 4
 
-// Variável global para guardar o PID do processo que está a jogar
-static pid_t playing_pid = -1;
-// Flag para indicar se este processo é o backup (pai original)
-static int is_backup = 0;
+// PID do processo backup (pai que está suspenso)
+static pid_t backup_parent_pid = -1;
 
 void screen_refresh(board_t * game_board, int mode) {
     debug("REFRESH\n");
@@ -39,8 +37,8 @@ int play_board(board_t * game_board) {
         if(c.command == '\0')
             return CONTINUE_PLAY;
 
-        // Quick save com tecla 'G' - apenas se for o processo que está a jogar
-        if(c.command == 'G' && !is_backup) {
+        // Quick save com tecla 'G'
+        if(c.command == 'G') {
             return CREATE_BACKUP;
         }
 
@@ -201,7 +199,7 @@ int main(int argc, char** argv) {
     
     // Loop principal: carrega e joga cada nível sequencialmente
     while (!end_game && current_level_index < n_levels) {
-        char level_name[32];
+        char level_name[MAX_FILENAME];  // MUDAR DE 32 PARA MAX_FILENAME
         level_data_t level_data;
         
         // Carregar o nível atual
@@ -221,113 +219,114 @@ int main(int argc, char** argv) {
         while(true) {
             int result = play_board(&game_board); 
 
-            // Handler para criar backup - LÓGICA INVERTIDA
-            if(result == CREATE_BACKUP && !is_backup) {
-                debug("CURRENT: G key pressed, creating backup with fork()...\n");
+            // ========== EXERCÍCIO 2: QUICK SAVE COM FORK ==========
+            if(result == CREATE_BACKUP) {
+                debug("CURRENT: G key pressed (backup_parent_pid=%d)...\n", backup_parent_pid);
                 
-                // Verificar se já existe um backup (processo pai suspenso)
-                if(playing_pid != -1) {
-                    debug("CURRENT: Backup already exists, ignoring G key\n");
-                    continue;
+                // REGRA: Só pode existir 1 backup guardado
+                if(backup_parent_pid != -1) {
+                    // Verificar se o processo pai backup ainda está vivo
+                    if(kill(backup_parent_pid, 0) == 0) {
+                        debug("CURRENT: Backup already exists (PID %d), ignoring G key\n", backup_parent_pid);
+                        continue; // Ignorar tecla G
+                    } else {
+                        // Pai morreu, limpar
+                        backup_parent_pid = -1;
+                    }
                 }
 
-                // Criar processo filho que vai CONTINUAR A JOGAR
-                playing_pid = fork();
+                debug("CURRENT: Creating backup with fork()...\n");
                 
-                if(playing_pid < 0) {
+                pid_t child_pid = fork();
+                
+                if(child_pid < 0) {
                     debug("ERROR: Fork failed\n");
                     continue;
                 }
-                else if(playing_pid == 0) {
+                else if(child_pid == 0) {
                     // PROCESSO FILHO - Continua a jogar
-                    playing_pid = -1; // No filho, não há playing_pid
-                    is_backup = 0;    // Filho não é backup
+                    backup_parent_pid = getppid(); // Guardar PID do pai backup
                     
-                    debug("CHILD: Created with PID %d, continuing to play...\n", getpid());
+                    debug("CHILD: Created with PID %d, parent backup is PID %d\n", 
+                          getpid(), backup_parent_pid);
                     
                     // Filho continua o loop normalmente
                     continue;
                 }
                 else {
                     // PROCESSO PAI - Torna-se o backup e suspende-se
-                    is_backup = 1;
-                    
-                    debug("PARENT: Becoming backup (PID %d), child playing (PID %d)\n", getpid(), playing_pid);
+                    debug("PARENT: Becoming backup (PID %d), child playing (PID %d)\n", 
+                          getpid(), child_pid);
                     debug("PARENT: Suspending with SIGSTOP...\n");
                     fflush(NULL);
                     
-                    // PAI suspende-se (guarda o estado)
+                    // PAI suspende-se (GUARDA O ESTADO NA MEMÓRIA)
                     raise(SIGSTOP);
                     
-                    // Quando o pai acorda (filho morreu), continua daqui
+                    // ===== QUANDO FILHO MORRE, PAI ACORDA AQUI =====
                     debug("PARENT: ====== BACKUP ACORDOU! ====== PID %d\n", getpid());
                     debug("PARENT: Child died, resuming from saved position...\n");
                     
-                    // Ressuscitar o Pacman
+                    // Ressuscitar o Pacman (estava morto)
                     game_board.pacmans[0].alive = true;
-                    playing_pid = -1; // Não há mais processo filho
-                    is_backup = 0;    // Voltamos a ser o processo principal
+                    backup_parent_pid = -1; // Não somos mais backup de ninguém
                     
-                    // Redesenhar
+                    // Redesenhar o tabuleiro no estado GUARDADO
                     clear();
                     draw_board(&game_board, DRAW_MENU);
                     refresh_screen();
                     
                     debug("PARENT: Resumed gameplay from backup state\n");
                     
-                    // Continuar o jogo
+                    // Continuar o jogo do ponto guardado
                     continue;
                 }
             }
 
             if(result == NEXT_LEVEL) {
-                // Guardar pontos acumulados
                 accumulated_points = game_board.pacmans[0].points;
                 
-                // Só matar o pai se realmente existe um backup (processo pai suspenso)
-                // Se playing_pid != -1, significa que somos o pai (backup)
-                // Se playing_pid == -1 e is_backup == 0, somos o filho mas pode não haver backup
-                // Só matamos o pai se realmente criámos um backup antes
-                // NOTA: Esta lógica é do Exercício 2 (backup), não do Exercício 1
-                // Para o Exercício 1, podemos simplesmente remover esta parte
+                // Se temos um pai backup, matar (não precisamos mais)
+                if(backup_parent_pid != -1) {
+                    debug("CHILD: Next level, killing backup parent %d\n", backup_parent_pid);
+                    kill(backup_parent_pid, SIGKILL);
+                    waitpid(backup_parent_pid, NULL, 0);
+                    backup_parent_pid = -1;
+                }
                 
-                // Avançar para o próximo nível
                 current_level_index++;
                 
-                // Verificar se há mais níveis
                 if (current_level_index >= n_levels) {
-                    // Último nível completado - mostrar VICTORY
                     printf("✓ Todos os níveis completados!\n");
                     screen_refresh(&game_board, DRAW_WIN);
                     sleep_ms(game_board.tempo);
                     end_game = true;
                 } else {
-                    // Ainda há mais níveis - apenas mostrar mensagem
                     printf("✓ Nível %s completado! Avançando para o próximo...\n", level_name);
-                    // Limpar o ecrã antes de carregar o próximo nível
                     clear();
                 }
                 
-                break;  // Sair do loop interno para carregar próximo nível
+                break;
             }
 
             if(result == QUIT_GAME) {
-                // Se somos o filho e morreu
-                if(playing_pid == -1 && is_backup == 0) {
-                    pid_t parent = getppid();
+                // Se temos um pai backup, acordá-lo
+                if(backup_parent_pid != -1) {
+                    debug("CHILD: Died, waking backup parent %d\n", backup_parent_pid);
                     
-                    // Verificar se o pai ainda existe (é o backup)
-                    if(kill(parent, 0) == 0) {
-                        debug("CHILD: Died, waking backup parent %d\n", parent);
-                        
+                    // Verificar se o pai ainda existe
+                    if(kill(backup_parent_pid, 0) == 0) {
                         // Acordar o pai
-                        kill(parent, SIGCONT);
+                        kill(backup_parent_pid, SIGCONT);
                         
-                        // Filho termina
+                        // Filho termina (pai continua)
                         unload_level(&game_board);
                         terminal_cleanup();
                         close_debug_file();
                         exit(0);
+                    } else {
+                        debug("CHILD: Backup parent died, no restoration possible\n");
+                        backup_parent_pid = -1;
                     }
                 }
                 
