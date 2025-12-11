@@ -8,6 +8,8 @@
 #include <dirent.h>
 #include <string.h>
 #include <ctype.h>
+#include "threads.h"  
+#include <pthread.h>
 
 #define CONTINUE_PLAY 0
 #define NEXT_LEVEL 1
@@ -18,6 +20,9 @@
 // PID do processo backup (pai que está suspenso)
 static pid_t backup_parent_pid = -1;
 
+static game_sync_t game_sync;
+static pthread_t display_thread;
+
 void screen_refresh(board_t * game_board, int mode) {
     debug("REFRESH\n");
     draw_board(game_board, mode);
@@ -25,6 +30,50 @@ void screen_refresh(board_t * game_board, int mode) {
     if(game_board->tempo != 0)
         sleep_ms(game_board->tempo);       
 }
+
+
+void* display_thread_func(void* arg) {
+   
+    board_t* game_board = (board_t*)arg;
+    
+    while (game_sync.game_running) {
+        // 1. Bloquear o mutex (proteger o board)
+        pthread_mutex_lock(&game_sync.board_mutex);
+        
+        // 2. Aguardar sinal para atualizar (esperar até display_ready = 1)
+        while (!game_sync.display_ready && game_sync.game_running) {
+            pthread_cond_wait(&game_sync.display_ready_cond, &game_sync.board_mutex);
+        }
+        
+        // 3. Se jogo parou, sair
+        if (!game_sync.game_running) {
+            pthread_mutex_unlock(&game_sync.board_mutex);
+            break;
+        }
+        
+        // 4. Atualizar o ecrã (desenhar o board)
+        draw_board(game_board, DRAW_MENU);
+        refresh_screen();
+        
+        // 5. Esperar o tempo do jogo
+        if (game_board->tempo != 0) {
+            sleep_ms(game_board->tempo);
+        }
+        
+        // 6. Resetar flag (já atualizámos)
+        game_sync.display_ready = 0;
+        
+        // 7. Avisar a thread principal que já terminámos
+        pthread_cond_broadcast(&game_sync.game_tick_cond);
+        
+        // 8. Desbloquear o mutex
+        pthread_mutex_unlock(&game_sync.board_mutex);
+    }
+    
+    return NULL;
+}
+    
+   
 
 int play_board(board_t * game_board) {
     pacman_t* pacman = &game_board->pacmans[0];
@@ -86,7 +135,12 @@ int play_board(board_t * game_board) {
 
     if (!game_board->pacmans[0].alive) {
         return QUIT_GAME;
-    }      
+    }
+    
+    pthread_mutex_lock(&game_sync.board_mutex);
+    game_sync.display_ready = 1;
+    pthread_cond_broadcast(&game_sync.display_ready_cond);
+    pthread_mutex_unlock(&game_sync.board_mutex);
 
     return CONTINUE_PLAY;  
 }
@@ -184,6 +238,13 @@ int main(int argc, char** argv) {
     srand((unsigned int)time(NULL));
     open_debug_file("debug.log");
     terminal_init();
+
+    if (init_game_sync(&game_sync) != 0) {
+        printf("Erro: falha ao inicializar sincronização de threads\n");
+        terminal_cleanup();
+        close_debug_file();
+        return 1;
+    }
     
     // Listar todos os ficheiros .lvl no diretório
     char level_names[MAX_LEVELS][MAX_FILENAME];
@@ -229,6 +290,14 @@ int main(int argc, char** argv) {
         load_level(&game_board, accumulated_points, &level_data, level_directory);
         draw_board(&game_board, DRAW_MENU);
         refresh_screen();
+
+        
+        if (pthread_create(&display_thread, NULL, display_thread_func, &game_board) != 0) {
+            printf("ERRO: Falha ao criar thread de display\n");
+            terminal_cleanup();
+            close_debug_file();
+            return 1;
+        }
 
         // Loop interno: jogar o nível atual
         while(true) {
@@ -313,12 +382,27 @@ int main(int argc, char** argv) {
                 
                 if (current_level_index >= n_levels) {
                     printf("✓ Todos os níveis completados!\n");
-                    screen_refresh(&game_board, DRAW_WIN);
+                    // Sinalizar thread de display
+                    pthread_mutex_lock(&game_sync.board_mutex);
+                    game_sync.display_ready = 1;
+                    pthread_cond_broadcast(&game_sync.display_ready_cond);
+                    pthread_mutex_unlock(&game_sync.board_mutex);
                     sleep_ms(game_board.tempo);
                     end_game = true;
+                    // Não fazer join aqui - será feito no final do main
                 } else {
                     printf("✓ Nível %s completado! Avançando para o próximo...\n", level_name);
                     clear();
+                    
+                    // Parar thread de display antes de mudar de nível
+                    pthread_mutex_lock(&game_sync.board_mutex);
+                    game_sync.game_running = 0;
+                    pthread_cond_broadcast(&game_sync.display_ready_cond);
+                    pthread_mutex_unlock(&game_sync.board_mutex);
+                    pthread_join(display_thread, NULL);
+                    
+                    // Resetar para próximo nível
+                    game_sync.game_running = 1;
                 }
                 
                 break;
@@ -346,13 +430,21 @@ int main(int argc, char** argv) {
                 }
                 
                 // Se não há backup, game over
-                screen_refresh(&game_board, DRAW_GAME_OVER); 
+                // Sinalizar thread de display
+                pthread_mutex_lock(&game_sync.board_mutex);
+                game_sync.display_ready = 1;
+                pthread_cond_broadcast(&game_sync.display_ready_cond);
+                pthread_mutex_unlock(&game_sync.board_mutex);
                 sleep_ms(game_board.tempo);
                 end_game = true;
                 break;
             }
     
-            screen_refresh(&game_board, DRAW_MENU); 
+            // Sinalizar thread de display
+            pthread_mutex_lock(&game_sync.board_mutex);
+            game_sync.display_ready = 1;
+            pthread_cond_broadcast(&game_sync.display_ready_cond);
+            pthread_mutex_unlock(&game_sync.board_mutex);
             accumulated_points = game_board.pacmans[0].points;      
         }
         
@@ -365,6 +457,18 @@ int main(int argc, char** argv) {
         printf("🎉 Parabéns! Completaste todos os %d níveis!\n", n_levels);
         printf("Pontos finais: %d\n", accumulated_points);
     }
+
+     pthread_mutex_lock(&game_sync.board_mutex);
+    game_sync.game_running = 0;
+    pthread_cond_broadcast(&game_sync.display_ready_cond);  // Acordar se estiver à espera
+    pthread_mutex_unlock(&game_sync.board_mutex);
+    
+    // Esperar que a thread termine
+    pthread_join(display_thread, NULL);
+    
+
+
+    destroy_game_sync(&game_sync);
 
     terminal_cleanup();
     close_debug_file();

@@ -1,7 +1,7 @@
 # Compiler variables
 CC = gcc
 CFLAGS = -g -Wall -Wextra -Werror -std=c17 -D_POSIX_C_SOURCE=200809L
-LDFLAGS = -lncurses
+LDFLAGS = -lncurses -lpthread
 
 # Directory variables
 SRC_DIR = src
@@ -13,11 +13,12 @@ INCLUDE_DIR = include
 TARGET = Pacmanist
 
 # Objects variables
-OBJS = game.o display.o board.o
+OBJS = game.o display.o board.o threads.o
 
 # Dependencies
 display.o = display.h
 board.o = board.h
+threads.o = threads.h
 
 # Object files path
 vpath %.o $(OBJ_DIR)
