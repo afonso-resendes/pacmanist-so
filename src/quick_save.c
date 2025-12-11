@@ -5,6 +5,9 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <dirent.h>
+#include <string.h>
+#include <ctype.h>
 
 #define CONTINUE_PLAY 0
 #define NEXT_LEVEL 1
@@ -12,10 +15,8 @@
 #define LOAD_BACKUP 3
 #define CREATE_BACKUP 4
 
-// Variável global para guardar o PID do processo de backup
-static pid_t backup_pid = -1;
-// Flag para indicar se este processo é o backup
-static int is_backup = 0;
+// PID do processo backup (pai que está suspenso)
+static pid_t backup_parent_pid = -1;
 
 void screen_refresh(board_t * game_board, int mode) {
     debug("REFRESH\n");
@@ -26,34 +27,25 @@ void screen_refresh(board_t * game_board, int mode) {
 }
 
 int play_board(board_t * game_board) {
-    debug("PLAY_BOARD: Function called\n");
-    
     pacman_t* pacman = &game_board->pacmans[0];
-    
-    debug("PLAY_BOARD: pacman->n_moves = %d\n", pacman->n_moves);
     
     command_t* play;
     if (pacman->n_moves == 0) {
-        debug("PLAY_BOARD: Getting user input...\n");
         command_t c; 
         c.command = get_input();
-        
-        debug("PLAY_BOARD: get_input() returned: '%c' (0x%02x)\n", c.command ? c.command : '?', (unsigned char)c.command);
 
         if(c.command == '\0')
             return CONTINUE_PLAY;
 
-        // Quick save com tecla 'G' - apenas se não for processo de backup
-        if(c.command == 'G' && !is_backup) {
+        // Quick save com tecla 'G'
+        if(c.command == 'G') {
             return CREATE_BACKUP;
         }
 
         c.turns = 1;
         play = &c;
     }
-    else { // else if the moves are pre-defined in the file
-        // avoid buffer overflow wrapping around with modulo of n_moves
-        // this ensures that we always access a valid move for the pacman
+    else {
         play = &pacman->moves[pacman->current_move%pacman->n_moves];
     }
 
@@ -65,7 +57,6 @@ int play_board(board_t * game_board) {
 
     int result = move_pacman(game_board, 0, play);
     if (result == REACHED_PORTAL) {
-        // Next level
         return NEXT_LEVEL;
     }
 
@@ -75,8 +66,6 @@ int play_board(board_t * game_board) {
     
     for (int i = 0; i < game_board->n_ghosts; i++) {
         ghost_t* ghost = &game_board->ghosts[i];
-        // avoid buffer overflow wrapping around with modulo of n_moves
-        // this ensures that we always access a valid move for the ghost
         move_ghost(game_board, i, &ghost->moves[ghost->current_move%ghost->n_moves]);
     }
 
@@ -87,6 +76,88 @@ int play_board(board_t * game_board) {
     return CONTINUE_PLAY;  
 }
 
+// Função auxiliar para comparar dois nomes de níveis (para ordenação)
+// Compara numericamente se ambos são números, senão alfabeticamente
+static int compare_level_names(const void* a, const void* b) {
+    const char* name1 = (const char*)a;
+    const char* name2 = (const char*)b;
+    
+    // Verificar se ambos são números (todos os caracteres são dígitos)
+    bool is_num1 = true;
+    bool is_num2 = true;
+    
+    for (int i = 0; name1[i] != '\0'; i++) {
+        if (!isdigit(name1[i])) {
+            is_num1 = false;
+            break;
+        }
+    }
+    
+    for (int i = 0; name2[i] != '\0'; i++) {
+        if (!isdigit(name2[i])) {
+            is_num2 = false;
+            break;
+        }
+    }
+    
+    // Se ambos são números, comparar numericamente
+    if (is_num1 && is_num2) {
+        int num1 = atoi(name1);
+        int num2 = atoi(name2);
+        return num1 - num2;
+    }
+    
+    // Senão, comparar alfabeticamente
+    return strcmp(name1, name2);
+}
+
+// Função para ordenar os níveis encontrados
+void sort_level_files(char level_names[][MAX_FILENAME], int n_levels) {
+    qsort(level_names, n_levels, MAX_FILENAME, compare_level_names);
+}
+
+// Função para listar todos os ficheiros .lvl no diretório
+// Retorna o número de níveis encontrados e preenche o array level_names
+// level_names: array onde serão guardados os nomes dos níveis (sem extensão .lvl)
+// Retorna: número de níveis encontrados, ou -1 em caso de erro
+int find_level_files(char* level_directory, char level_names[][MAX_FILENAME]) {
+    DIR* dir = opendir(level_directory);
+    if (dir == NULL) {
+        printf("ERRO: Não consegui abrir o diretório %s\n", level_directory);
+        return -1;
+    }
+    
+    int count = 0;
+    struct dirent* entry;
+    
+    // Ler todas as entradas do diretório
+    while ((entry = readdir(dir)) != NULL && count < MAX_LEVELS) {
+        char* name = entry->d_name;
+        size_t len = strlen(name);
+        
+        // Verificar se termina com .lvl (e tem pelo menos 5 caracteres: "x.lvl")
+        if (len > 4 && strcmp(name + len - 4, ".lvl") == 0) {
+            // Copiar o nome sem a extensão .lvl
+            size_t name_len = len - 4;  // Comprimento sem ".lvl"
+            if (name_len < MAX_FILENAME) {
+                strncpy(level_names[count], name, name_len);
+                level_names[count][name_len] = '\0';  // Garantir null-termination
+                count++;
+            }
+        }
+    }
+    
+    closedir(dir);
+    
+    if (count == 0) {
+        printf("AVISO: Não foram encontrados ficheiros .lvl no diretório %s\n", level_directory);
+        return 0;
+    }
+    
+    printf("✓ Encontrados %d ficheiro(s) .lvl\n", count);
+    return count;
+}
+
 int main(int argc, char** argv) {
     if (argc != 2) {
         printf("Usage: %s <level_directory>\n", argv[0]);
@@ -95,152 +166,171 @@ int main(int argc, char** argv) {
 
     char* level_directory = argv[1];
     
-    // Random seed for any random movements
     srand((unsigned int)time(NULL));
-
     open_debug_file("debug.log");
-
     terminal_init();
+    
+    // Listar todos os ficheiros .lvl no diretório
+    char level_names[MAX_LEVELS][MAX_FILENAME];
+    int n_levels = find_level_files(level_directory, level_names);
+    
+    if (n_levels <= 0) {
+        printf("ERRO: Não foram encontrados níveis para carregar!\n");
+        terminal_cleanup();
+        close_debug_file();
+        return 1;
+    }
+    
+    // Ordenar os níveis encontrados
+    sort_level_files(level_names, n_levels);
+    
+    // Mostrar níveis encontrados (debug)
+    printf("Níveis encontrados (ordenados):\n");
+    for (int i = 0; i < n_levels; i++) {
+        printf("  %d. %s.lvl\n", i + 1, level_names[i]);
+    }
+    printf("\n");
     
     int accumulated_points = 0;
     bool end_game = false;
     board_t game_board;
 
-    // Parsear o ficheiro do nível
-    level_data_t level_data;
-    if (parse_level_file(level_directory, "1", &level_data) != 0) {
-        printf("ERRO: Não consegui carregar o nível!\n");
-        return 1;
-    }
-
-    while (!end_game) {
-        load_level(&game_board, accumulated_points, &level_data);
+    int current_level_index = 0;
+    
+    // Loop principal: carrega e joga cada nível sequencialmente
+    while (!end_game && current_level_index < n_levels) {
+        char level_name[MAX_FILENAME];  // MUDAR DE 32 PARA MAX_FILENAME
+        level_data_t level_data;
+        
+        // Carregar o nível atual
+        snprintf(level_name, sizeof(level_name), "%s", level_names[current_level_index]);
+        printf("=== Carregando nível: %s.lvl ===\n", level_name);
+        
+        if (parse_level_file(level_directory, level_name, &level_data) != 0) {
+            printf("ERRO: Não consegui carregar o nível %s!\n", level_name);
+            break;  // Sair se não conseguir carregar
+        }
+        
+        load_level(&game_board, accumulated_points, &level_data, level_directory);
         draw_board(&game_board, DRAW_MENU);
         refresh_screen();
 
-        // Se este processo é um backup que acabou de acordar
-        if(is_backup) {
-            debug("CHILD: Restarting game loop from saved state\n");
-        }
-
-        debug("MAIN: Entering inner game loop (while true)\n");
-
+        // Loop interno: jogar o nível atual
         while(true) {
-            debug("MAIN: Calling play_board()\n");
             int result = play_board(&game_board); 
 
-            debug("MAIN: play_board() returned %d\n", result);
-
-            // Handler para criar backup - apenas no processo pai
-            if(result == CREATE_BACKUP && !is_backup) {
-                debug("PARENT: G key pressed, attempting to create backup...\n");
+            // ========== EXERCÍCIO 2: QUICK SAVE COM FORK ==========
+            if(result == CREATE_BACKUP) {
+                debug("CURRENT: G key pressed (backup_parent_pid=%d)...\n", backup_parent_pid);
                 
-                // Verificar se já existe um backup
-                if(backup_pid != -1) {
-                    // Verificar se o processo filho ainda existe
-                    int status;
-                    pid_t check = waitpid(backup_pid, &status, WNOHANG);
-                    if(check == 0) {
-                        // Processo filho ainda está a correr - já existe backup
-                        debug("PARENT: Backup already exists (PID %d), ignoring G key\n", backup_pid);
-                        continue;
+                // REGRA: Só pode existir 1 backup guardado
+                if(backup_parent_pid != -1) {
+                    // Verificar se o processo pai backup ainda está vivo
+                    if(kill(backup_parent_pid, 0) == 0) {
+                        debug("CURRENT: Backup already exists (PID %d), ignoring G key\n", backup_parent_pid);
+                        continue; // Ignorar tecla G
                     } else {
-                        // Processo filho terminou, pode criar novo backup
-                        debug("PARENT: Previous backup died, clearing backup_pid\n");
-                        backup_pid = -1;
+                        // Pai morreu, limpar
+                        backup_parent_pid = -1;
                     }
                 }
 
-                debug("PARENT: Creating new backup process with fork()...\n");
+                debug("CURRENT: Creating backup with fork()...\n");
                 
-                // Criar novo processo de backup
-                backup_pid = fork();
+                pid_t child_pid = fork();
                 
-                if(backup_pid < 0) {
-                    // Erro no fork
+                if(child_pid < 0) {
                     debug("ERROR: Fork failed\n");
                     continue;
                 }
-                else if(backup_pid == 0) {
-                    // PROCESSO FILHO - Guarda o estado e fica suspenso
-                    is_backup = 1;
-                    backup_pid = -1;
+                else if(child_pid == 0) {
+                    // PROCESSO FILHO - Continua a jogar
+                    backup_parent_pid = getppid(); // Guardar PID do pai backup
                     
-                    debug("CHILD: Backup created with PID %d, suspending with SIGSTOP...\n", getpid());
+                    debug("CHILD: Created with PID %d, parent backup is PID %d\n", 
+                          getpid(), backup_parent_pid);
+                    
+                    // Filho continua o loop normalmente
+                    continue;
+                }
+                else {
+                    // PROCESSO PAI - Torna-se o backup e suspende-se
+                    debug("PARENT: Becoming backup (PID %d), child playing (PID %d)\n", 
+                          getpid(), child_pid);
+                    debug("PARENT: Suspending with SIGSTOP...\n");
                     fflush(NULL);
                     
-                    // Suspender o processo até receber SIGCONT
+                    // PAI suspende-se (GUARDA O ESTADO NA MEMÓRIA)
                     raise(SIGSTOP);
                     
-                    // Quando acordar (via SIGCONT), continua EXATAMENTE daqui
-                    debug("CHILD: ====== ACORDEI! ====== PID %d\n", getpid());
-                    debug("CHILD: Resumed from backup, continuing from saved position...\n");
+                    // ===== QUANDO FILHO MORRE, PAI ACORDA AQUI =====
+                    debug("PARENT: ====== BACKUP ACORDOU! ====== PID %d\n", getpid());
+                    debug("PARENT: Child died, resuming from saved position...\n");
                     
-                    // IMPORTANTE: Forçar modo blocking no getch()
-                    nodelay(stdscr, FALSE);  // Desativar non-blocking
-                    timeout(-1);              // Timeout infinito
-                    
-                    // Ressuscitar o Pacman
+                    // Ressuscitar o Pacman (estava morto)
                     game_board.pacmans[0].alive = true;
-                    debug("CHILD: Pacman marked as alive\n");
+                    backup_parent_pid = -1; // Não somos mais backup de ninguém
                     
-                    // Redesenhar o ecrã no estado GUARDADO
-                    debug("CHILD: About to redraw screen...\n");
+                    // Redesenhar o tabuleiro no estado GUARDADO
                     clear();
                     draw_board(&game_board, DRAW_MENU);
                     refresh_screen();
                     
-                    debug("CHILD: Screen redrawn in BLOCKING mode, resuming gameplay...\n");
+                    debug("PARENT: Resumed gameplay from backup state\n");
                     
-                    // Continuar o loop
+                    // Continuar o jogo do ponto guardado
                     continue;
                 }
-                else {
-                    // PROCESSO PAI - Continua o jogo normalmente
-                    debug("PARENT: Backup process created with PID %d\n", backup_pid);
-                }
-                
-                continue;
             }
 
             if(result == NEXT_LEVEL) {
-                // Terminar processo de backup se existir
-                if(backup_pid != -1 && !is_backup) {
-                    debug("PARENT: Next level, killing backup process %d\n", backup_pid);
-                    kill(backup_pid, SIGKILL);
-                    waitpid(backup_pid, NULL, 0);
-                    backup_pid = -1;
+                accumulated_points = game_board.pacmans[0].points;
+                
+                // Se temos um pai backup, matar (não precisamos mais)
+                if(backup_parent_pid != -1) {
+                    debug("CHILD: Next level, killing backup parent %d\n", backup_parent_pid);
+                    kill(backup_parent_pid, SIGKILL);
+                    waitpid(backup_parent_pid, NULL, 0);
+                    backup_parent_pid = -1;
                 }
                 
-                screen_refresh(&game_board, DRAW_WIN);
-                sleep_ms(game_board.tempo);
+                current_level_index++;
+                
+                if (current_level_index >= n_levels) {
+                    printf("✓ Todos os níveis completados!\n");
+                    screen_refresh(&game_board, DRAW_WIN);
+                    sleep_ms(game_board.tempo);
+                    end_game = true;
+                } else {
+                    printf("✓ Nível %s completado! Avançando para o próximo...\n", level_name);
+                    clear();
+                }
+                
                 break;
             }
 
             if(result == QUIT_GAME) {
-                // Se morreu e existe backup, acordar o processo filho
-                if(backup_pid != -1 && !is_backup) {
-                    debug("PARENT: Pacman died, waking backup process %d\n", backup_pid);
-                    fflush(NULL); // Forçar escrita
+                // Se temos um pai backup, acordá-lo
+                if(backup_parent_pid != -1) {
+                    debug("CHILD: Died, waking backup parent %d\n", backup_parent_pid);
                     
-                    // Acordar o processo filho
-                    kill(backup_pid, SIGCONT);
-                    
-                    debug("PARENT: Sent SIGCONT to backup, now terminating parent process\n");
-                    fflush(NULL);
-                    
-                    // Pequeno delay para garantir que o sinal foi recebido
-                    sleep_ms(100); // 100ms
-                    
-                    // Limpar apenas a memória do jogo
-                    unload_level(&game_board);
-                    close_debug_file();
-                    
-                    // Terminar o processo pai SEM fechar o terminal
-                    exit(0);
+                    // Verificar se o pai ainda existe
+                    if(kill(backup_parent_pid, 0) == 0) {
+                        // Acordar o pai
+                        kill(backup_parent_pid, SIGCONT);
+                        
+                        // Filho termina (pai continua)
+                        unload_level(&game_board);
+
+                        close_debug_file();
+                        exit(0);
+                    } else {
+                        debug("CHILD: Backup parent died, no restoration possible\n");
+                        backup_parent_pid = -1;
+                    }
                 }
                 
-                // Se não há backup ou se este é o backup que morreu
+                // Se não há backup, game over
                 screen_refresh(&game_board, DRAW_GAME_OVER); 
                 sleep_ms(game_board.tempo);
                 end_game = true;
@@ -248,24 +338,20 @@ int main(int argc, char** argv) {
             }
     
             screen_refresh(&game_board, DRAW_MENU); 
-
             accumulated_points = game_board.pacmans[0].points;      
         }
         
-        debug("MAIN: Exited inner loop, cleaning up\n");
         print_board(&game_board);
         unload_level(&game_board);
-    }    
-
-    // Limpar processo de backup se ainda existir
-    if(backup_pid != -1) {
-        debug("Cleaning up backup process %d\n", backup_pid);
-        kill(backup_pid, SIGKILL);
-        waitpid(backup_pid, NULL, 0);
-    }    
+    }
+    
+    // Se completou todos os níveis, mostrar mensagem final
+    if (current_level_index >= n_levels && !end_game) {
+        printf("🎉 Parabéns! Completaste todos os %d níveis!\n", n_levels);
+        printf("Pontos finais: %d\n", accumulated_points);
+    }
 
     terminal_cleanup();
-
     close_debug_file();
 
     return 0;
