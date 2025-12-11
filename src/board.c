@@ -332,15 +332,6 @@ int move_pacman(board_t* board, int pacman_index, command_t* command) {
     int new_x = pac->pos_x;
     int new_y = pac->pos_y;
 
-    // check passo - só aplicar a comandos de movimento, não a T
-    if (command->command != 'T') {
-    if (pac->waiting > 0) {
-        pac->waiting -= 1;
-        return VALID_MOVE;        
-    }
-    pac->waiting = pac->passo;
-    }
-
     char direction = command->command;
 
     if (direction == 'R') {
@@ -373,16 +364,11 @@ int move_pacman(board_t* board, int pacman_index, command_t* command) {
             return INVALID_MOVE; // Invalid direction
     }
 
-    // Logic for the WASD movement
-    // Decrementar turns_left e só avançar para próximo comando quando chegar a 0
-    command->turns_left--;
-    if (command->turns_left <= 0) {
+    // Check boundaries first - if invalid, skip immediately to next command
+    if (!is_valid_position(board, new_x, new_y)) {
+        // Invalid move - advance to next command immediately
         pac->current_move++;
         command->turns_left = command->turns;  // Reset para o próximo ciclo
-    }
-
-    // Check boundaries
-    if (!is_valid_position(board, new_x, new_y)) {
         return INVALID_MOVE;
     }
 
@@ -390,15 +376,37 @@ int move_pacman(board_t* board, int pacman_index, command_t* command) {
     int old_index = get_board_index(board, pac->pos_x, pac->pos_y);
     char target_content = board->board[new_index].content;
 
+    // Check for portal FIRST - if moving to portal, ignore waiting and enter immediately
     if (board->board[new_index].has_portal) {
         board->board[old_index].content = ' ';
         board->board[new_index].content = 'P';
         return REACHED_PORTAL;
     }
 
-    // Check for walls
+    // check passo - só aplicar a comandos de movimento, não a T
+    // BUT: only check waiting AFTER confirming it's not a portal move
+    if (command->command != 'T') {
+    if (pac->waiting > 0) {
+        pac->waiting -= 1;
+        return VALID_MOVE;        
+    }
+    pac->waiting = pac->passo;
+    }
+
+    // Check for walls - if invalid, skip immediately to next command
     if (target_content == 'W') {
+        // Invalid move - advance to next command immediately
+        pac->current_move++;
+        command->turns_left = command->turns;  // Reset para o próximo ciclo
         return INVALID_MOVE;
+    }
+
+    // Logic for the WASD movement
+    // Decrementar turns_left e só avançar para próximo comando quando chegar a 0
+    command->turns_left--;
+    if (command->turns_left <= 0) {
+        pac->current_move++;
+        command->turns_left = command->turns;  // Reset para o próximo ciclo
     }
 
     // Check for ghosts

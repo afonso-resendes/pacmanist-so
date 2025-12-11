@@ -55,7 +55,17 @@ int play_board(board_t * game_board) {
         return QUIT_GAME;
     }
 
+    pacman_t* pacman_before = &game_board->pacmans[0];
+    int pacman_x_before = pacman_before->pos_x;
+    int pacman_y_before = pacman_before->pos_y;
+    
     int result = move_pacman(game_board, 0, play);
+    
+    pacman_t* pacman_after = &game_board->pacmans[0];
+    int pacman_x_after = pacman_after->pos_x;
+    int pacman_y_after = pacman_after->pos_y;
+    int pacman_actually_moved = (pacman_x_before != pacman_x_after || pacman_y_before != pacman_y_after);
+    
     if (result == REACHED_PORTAL) {
         return NEXT_LEVEL;
     }
@@ -64,9 +74,14 @@ int play_board(board_t * game_board) {
         return QUIT_GAME;
     }
     
-    for (int i = 0; i < game_board->n_ghosts; i++) {
-        ghost_t* ghost = &game_board->ghosts[i];
-        move_ghost(game_board, i, &ghost->moves[ghost->current_move%ghost->n_moves]);
+    // Only move ghosts when Pacman actually moved
+    // This prevents ghosts from moving multiple times when Pacman is waiting
+    // or still processing a multi-turn command
+    if (pacman_actually_moved) {
+        for (int i = 0; i < game_board->n_ghosts; i++) {
+            ghost_t* ghost = &game_board->ghosts[i];
+            move_ghost(game_board, i, &ghost->moves[ghost->current_move%ghost->n_moves]);
+        }
     }
 
     if (!game_board->pacmans[0].alive) {
