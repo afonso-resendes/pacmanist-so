@@ -381,10 +381,7 @@ int main(int argc, char** argv) {
     
     sort_level_files(level_names, n_levels);
     
-    for (int i = 0; i < n_levels; i++) {
-        printf("  %d. %s.lvl\n", i + 1, level_names[i]);
-    }
-    printf("\n");
+   
     
     int accumulated_points = 0;
     bool end_game = false;
@@ -454,8 +451,7 @@ int main(int argc, char** argv) {
                 else if (child_pid == 0) {
                     // ===== CHILD: continua a jogar =====
                     backup_parent_pid = getppid();
-                    debug("CHILD: Created (PID %d), parent backup (PID %d)\n", 
-                          getpid(), backup_parent_pid);
+                  
                     
                     // Reiniciar threads
                     if (create_all_threads(&game_board) != 0) {
@@ -466,15 +462,13 @@ int main(int argc, char** argv) {
                 }
                 else {
                     // ===== PARENT: Torna-se backup =====
-                    debug("PARENT: Becoming backup (PID %d), child (PID %d)\n", 
-                          getpid(), child_pid);
-                    debug("PARENT: Suspending with SIGSTOP...\n");
+                   
                     fflush(NULL);
                     
                     raise(SIGSTOP);
                     
                     // ===== ACORDOU - Child morreu =====
-                    debug("PARENT: ====== BACKUP ACORDOU! ====== PID %d\n", getpid());
+                   
                     
                     // Ressuscitar pacman
                     game_board.pacmans[0].alive = true;
@@ -484,8 +478,7 @@ int main(int argc, char** argv) {
                     clear();
                     draw_board(&game_board, DRAW_MENU);
                     refresh_screen();
-                    
-                    debug("PARENT: Resuming from backup state\n");
+                 
                     
                     // Reiniciar threads
                     if (create_all_threads(&game_board) != 0) {
@@ -501,7 +494,7 @@ int main(int argc, char** argv) {
             if (game_sync.level_complete) {
                 // Matar backup se existir
                 if (backup_parent_pid != -1) {
-                    debug("CHILD: Level complete, killing backup %d\n", backup_parent_pid);
+                 
                     kill(backup_parent_pid, SIGKILL);
                     waitpid(backup_parent_pid, NULL, 0);
                     backup_parent_pid = -1;
@@ -511,11 +504,11 @@ int main(int argc, char** argv) {
                 current_level_index++;
                 
                 if (current_level_index >= n_levels) {
-                    printf("✓ Todos os níveis completados!\n");
+                   
                     screen_refresh(&game_board, DRAW_WIN);
                     end_game = true;
                 } else {
-                    printf("✓ Nível %s completado!\n", level_name);
+                   
                     screen_refresh(&game_board, DRAW_WIN);
                     clear();
                 }
@@ -525,7 +518,7 @@ int main(int argc, char** argv) {
             if (game_sync.pacman_dead) {
                 // Acordar backup se existir
                 if (backup_parent_pid != -1) {
-                    debug("CHILD: Pacman died, waking backup %d\n", backup_parent_pid);
+                  
                     
                     if (kill(backup_parent_pid, 0) == 0) {
                         kill(backup_parent_pid, SIGCONT);
@@ -535,13 +528,13 @@ int main(int argc, char** argv) {
                         close_debug_file();
                         exit(0);
                     } else {
-                        debug("CHILD: Backup died, no restoration\n");
+                       
                         backup_parent_pid = -1;
                     }
                 }
                 
                 // Sem backup = game over
-                printf("✗ Game Over!\n");
+             
                 screen_refresh(&game_board, DRAW_GAME_OVER);
                 end_game = true;
                 break;
@@ -549,17 +542,17 @@ int main(int argc, char** argv) {
             
             // ===== QUIT (Q) - TERMINAR COMPLETAMENTE =====
             // Se chegou aqui sem level_complete nem pacman_dead, foi quit
-            debug("MAIN: Quit detected\n");
+         
             
             // Matar backup se existir (NÃO acordar, MATAR)
             if (backup_parent_pid != -1) {
-                debug("CHILD: Quit pressed, killing backup %d\n", backup_parent_pid);
+              
                 kill(backup_parent_pid, SIGKILL);
                 waitpid(backup_parent_pid, NULL, 0);
                 backup_parent_pid = -1;
             }
             
-            printf("✗ Jogo terminado pelo utilizador\n");
+
             end_game = true;
             break;
         }

@@ -116,7 +116,7 @@ int parse_monster_file(char* level_directory, char* monster_file, ghost_t* ghost
 
     int fd = open(file_path, O_RDONLY);
     if (fd <0) {
-         printf("ERRO: Não consegui abrir ficheiro de monstro: %s\n", file_path);
+      
         return -1;
     }
     char buffer[4096];
@@ -216,7 +216,7 @@ int parse_pacman_file(char* level_directory, char* pacman_file, pacman_t* pacman
 
     int fd = open(file_path, O_RDONLY);
     if (fd < 0) {
-        printf("ERRO: Não consegui abrir ficheiro de pacman: %s\n", file_path);
+     
         return -1;
     }
     char buffer[4096];
@@ -497,7 +497,7 @@ static int move_ghost_charged_direction(board_t* board, ghost_t* ghost, char dir
             }
             break;
         default:
-            debug("DEFAULT CHARGED MOVE - direction = %c\n", direction);
+          
             return INVALID_MOVE;
     }
     return VALID_MOVE;
@@ -513,7 +513,7 @@ int move_ghost_charged(board_t* board, int ghost_index, char direction) {
     ghost->charged = 0; //uncharge
     int result = move_ghost_charged_direction(board, ghost, direction, &new_x, &new_y);
     if (result == INVALID_MOVE) {
-        debug("DEFAULT CHARGED MOVE - direction = %c\n", direction);
+    
         return INVALID_MOVE;
     }
 
@@ -625,7 +625,7 @@ int move_ghost(board_t* board, int ghost_index, command_t* command) {
 }
 
 void kill_pacman(board_t* board, int pacman_index) {
-    debug("Killing %d pacman\n\n", pacman_index);
+ 
     pacman_t* pac = &board->pacmans[pacman_index];
     int index = pac->pos_y * board->width + pac->pos_x;
 
@@ -643,22 +643,20 @@ int load_pacman(board_t* board, int points, char* level_directory) {
     // Se existe ficheiro .p, fazer parsing dinâmico
     if (board->pacman_file[0] != '\0') {
         if (parse_pacman_file(level_directory, board->pacman_file, pac) != 0) {
-            printf("ERRO: Não consegui carregar pacman %s\n", board->pacman_file);
+           
             return -1;
         }
 
         // Se existe ficheiro .p, POS também é obrigatório
         if (pac->pos_x < 0 || pac->pos_y < 0) {
-            printf("ERRO: Ficheiro %s não contém comando POS (obrigatório quando ficheiro .p existe)\n", 
-                   board->pacman_file);
+        
             return -1;
         }
         
         // Verificar se a posição é válida
         int idx = pac->pos_y * board->width + pac->pos_x;
         if (idx < 0 || idx >= board->width * board->height) {
-            printf("ERRO: Posição (%d, %d) do Pacman está fora dos limites do tabuleiro\n",
-                   pac->pos_y, pac->pos_x);
+          
             return -1;
         }
         
@@ -706,29 +704,26 @@ int load_ghost(board_t* board, char* level_directory) {
         if (board->ghosts_files[i][0] != '\0') {
 
             if (parse_monster_file(level_directory, board->ghosts_files[i], &board->ghosts[i]) != 0) {
-               printf("ERRO: Não consegui carregar monstro %s\n", board->ghosts_files[i]);
+              
                 return -1;
             }
             
             // POS é obrigatório para monstros
             if (board->ghosts[i].pos_x < 0 || board->ghosts[i].pos_y < 0) {
-                printf("ERRO: Ficheiro %s não contém comando POS (obrigatório para monstros)\n", 
-                       board->ghosts_files[i]);
+               
                 return -1;
             }
             
             // Verificar se a posição é válida
             int idx = board->ghosts[i].pos_y * board->width + board->ghosts[i].pos_x;
             if (idx < 0 || idx >= board->width * board->height) {
-                printf("ERRO: Posição (%d, %d) do monstro %s está fora dos limites do tabuleiro\n",
-                       board->ghosts[i].pos_y, board->ghosts[i].pos_x, board->ghosts_files[i]);
+              
                 return -1;
             }
             
             // Verificar se a posição já está ocupada por outro ghost
             if (board->board[idx].content == 'M') {
-                printf("ERRO: Posição (%d, %d) já está ocupada por outro ghost\n", 
-                       board->ghosts[i].pos_y, board->ghosts[i].pos_x);
+               
                 return -1;
             }
             
@@ -833,7 +828,7 @@ void debug(const char * format, ...) {
 
 void print_board(board_t *board) {
     if (!board || !board->board) {
-        debug("[%d] Board is empty or not initialized.\n", getpid());
+       
         return;
     }
 
@@ -874,36 +869,29 @@ void print_board(board_t *board) {
 
     buffer[offset] = '\0';
 
-    debug("%s", buffer);
+
 }
 
 // Helper function para processar uma linha
-static void process_line(char* line, int line_num, level_data_t* level_data) {
+static void process_line(char* line, level_data_t* level_data) {
      
     if (line[0] == '#') {
         return;
     }
     // Tentar parsear DIM
     if (parse_dim_line(line, &level_data->width, &level_data->height) == 0) {
-        printf("✓ Linha %d - DIM: %d x %d\n", line_num, level_data->width, level_data->height);
         return; // Encontrou DIM, sair
     }
 
-    if (parse_tempo_line(line, &level_data->tempo) == 0) {
-        printf("✓ Linha %d - TEMPO: %d\n", line_num, level_data->tempo);
+    if (parse_tempo_line(line, &level_data->tempo) == 0) {  
         return;
     }
 
     if (parse_pac_line(line, level_data->pac_file) == 0) {
-        printf("✓ Linha %d - PAC: %s\n", line_num, level_data->pac_file);
         return;
     }
 
     if (parse_mon_line(line, level_data->ghost_files,&level_data->n_ghosts) == 0) {
-        printf("✓ Linha %d - MON: %d ficheiros\n", line_num, level_data->n_ghosts);
-        for (int i = 0; i < level_data->n_ghosts; i++) {
-            printf("  - %s\n", level_data->ghost_files[i]);
-        }
         return;
     }
 
@@ -914,7 +902,7 @@ static void process_line(char* line, int line_num, level_data_t* level_data) {
                MAX_FILENAME - 1);
         level_data->board_lines[level_data->n_board_lines][MAX_FILENAME - 1] = '\0';
         level_data->n_board_lines++;
-        printf("✓ Linha %d - Tabuleiro: [%s]\n", line_num, line);
+   
     }
 }
 
@@ -929,26 +917,26 @@ int parse_level_file(char* level_directory, char* level_name, level_data_t* leve
     snprintf(level_path, sizeof(level_path), "%s/%s.lvl", 
              level_directory, level_name);
     
-    printf("Tentando abrir: %s\n", level_path);
+  
     int fd = open(level_path, O_RDONLY);
     if (fd < 0) {
-        printf("ERRO: Não consegui abrir o ficheiro!\n");
+       
         return -1;
     }
-    printf("✓ Ficheiro aberto com sucesso!\n\n");
+   
 
     char buffer[4096];
     ssize_t total_bytes = read(fd, buffer, sizeof(buffer) - 1);
 
     if (total_bytes < 0) {
-        printf("ERRO: Não consegui ler o ficheiro!\n");
+       
         close(fd);
         return -1;
     }
 
     buffer[total_bytes] = '\0';
 
-    int line_num = 0;
+  
     char* line_start = buffer;
     char* current = buffer;
 
@@ -957,8 +945,8 @@ int parse_level_file(char* level_directory, char* level_name, level_data_t* leve
             *current = '\0';
             
             if (current > line_start) {
-                line_num++;
-                process_line(line_start, line_num, level_data);
+              
+                process_line(line_start, level_data);
             }
             
             line_start = current + 1;
@@ -968,12 +956,10 @@ int parse_level_file(char* level_directory, char* level_name, level_data_t* leve
     
     // Processar última linha (se não terminar com \n)
     if (current > line_start) {
-        line_num++;
-        process_line(line_start, line_num, level_data);
+       
+        process_line(line_start, level_data);
     }   
     close(fd);
-    printf("\n✓ Ficheiro lido completamente!\n");
-    printf("Dimensões parseadas: %d x %d\n", level_data->width, level_data->height);
-    printf("Linhas do tabuleiro: %d\n", level_data->n_board_lines);
+   
     return 0;
 }
