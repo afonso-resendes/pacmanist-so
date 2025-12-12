@@ -34,13 +34,12 @@ void* display_thread_func(void* arg);
 void* pacman_thread_func(void* arg);
 void* ghost_thread_func(void* arg);
 
-// ========== FUNÇÕES AUXILIARES PARA THREADS ==========
+// ========== FUNÇÕES AUXILIARES PARA AS THREADS ==========
 
 // Parar todas as threads de forma ordenada
 void stop_all_threads(void) {
-    debug("MAIN: Stopping all threads...\n");
     
-    // Sinalizar para threads pararem
+    // Sinalizar para as threads pararem
     pthread_mutex_lock(&game_sync.board_mutex);
     game_sync.game_running = 0;
     pthread_cond_broadcast(&game_sync.display_ready_cond);
@@ -48,15 +47,12 @@ void stop_all_threads(void) {
     
     // Esperar threads
     pthread_join(pacman_thread, NULL);
-    debug("MAIN: Pacman thread stopped\n");
     
     for (int i = 0; i < n_ghost_threads; i++) {
         pthread_join(ghost_threads[i], NULL);
     }
-    debug("MAIN: All %d ghost threads stopped\n", n_ghost_threads);
     
     pthread_join(display_thread, NULL);
-    debug("MAIN: Display thread stopped\n");
     
     if (ghost_threads) {
         free(ghost_threads);
@@ -66,7 +62,6 @@ void stop_all_threads(void) {
 
 // Criar todas as threads
 int create_all_threads(board_t* game_board) {
-    debug("MAIN: Creating all threads...\n");
     
     // Reset flags
     game_sync.game_running = 1;
@@ -77,7 +72,6 @@ int create_all_threads(board_t* game_board) {
     
     // Display thread
     if (pthread_create(&display_thread, NULL, display_thread_func, game_board) != 0) {
-        debug("MAIN: ERROR creating display thread\n");
         return -1;
     }
     
@@ -87,7 +81,6 @@ int create_all_threads(board_t* game_board) {
     pacman_args->sync = &game_sync;
     
     if (pthread_create(&pacman_thread, NULL, pacman_thread_func, pacman_args) != 0) {
-        debug("MAIN: ERROR creating pacman thread\n");
         free(pacman_args);
         return -1;
     }
@@ -103,13 +96,11 @@ int create_all_threads(board_t* game_board) {
         ghost_args->sync = &game_sync;
         
         if (pthread_create(&ghost_threads[i], NULL, ghost_thread_func, ghost_args) != 0) {
-            debug("MAIN: ERROR creating ghost thread %d\n", i);
             free(ghost_args);
             return -1;
         }
     }
     
-    debug("MAIN: All threads created successfully\n");
     return 0;
 }
 
@@ -118,12 +109,10 @@ int create_all_threads(board_t* game_board) {
 void* display_thread_func(void* arg) {
     board_t* game_board = (board_t*)arg;
     
-    debug("DISPLAY_THREAD: Started (TID %lu)\n", pthread_self());
     
     while (game_sync.game_running) {
         pthread_mutex_lock(&game_sync.board_mutex);
         
-        // Aguardar até display_ready = 1
         while (!game_sync.display_ready && game_sync.game_running) {
             pthread_cond_wait(&game_sync.display_ready_cond, &game_sync.board_mutex);
         }
@@ -133,11 +122,8 @@ void* display_thread_func(void* arg) {
             break;
         }
         
-        // ÚNICA thread que chama ncurses
         draw_board(game_board, DRAW_MENU);
         refresh_screen();
-        
-        // Resetar flag
         game_sync.display_ready = 0;
         
         // Avisar que terminou desenho
@@ -153,7 +139,6 @@ void* display_thread_func(void* arg) {
         }
     }
     
-    debug("DISPLAY_THREAD: Exiting\n");
     return NULL;
 }
 
@@ -164,7 +149,6 @@ void* pacman_thread_func(void* arg) {
     board_t* board = (board_t*)args->board;
     game_sync_t* sync = args->sync;
     
-    debug("PACMAN_THREAD: Started (TID %lu)\n", pthread_self());
     
     while (sync->game_running && !sync->level_complete && !sync->pacman_dead) {
         pacman_t* pacman = &board->pacmans[0];
@@ -178,7 +162,6 @@ void* pacman_thread_func(void* arg) {
                 continue;
             }
             
-            debug("PACMAN_THREAD: KEY %c\n", c.command);
             
             // QUICK SAVE - sinalizar main thread via flag
             if (c.command == 'G') {
@@ -187,7 +170,6 @@ void* pacman_thread_func(void* arg) {
                 sync->game_running = 0;
                 pthread_cond_broadcast(&sync->display_ready_cond);
                 pthread_mutex_unlock(&sync->board_mutex);
-                debug("PACMAN_THREAD: Quick save requested\n");
                 break;
             }
             
@@ -198,7 +180,6 @@ void* pacman_thread_func(void* arg) {
                 sync->display_ready = 1;
                 pthread_cond_broadcast(&sync->display_ready_cond);
                 pthread_mutex_unlock(&sync->board_mutex);
-                debug("PACMAN_THREAD: Quit requested\n");
                 break;
             }
             
@@ -213,7 +194,6 @@ void* pacman_thread_func(void* arg) {
         int result = move_pacman(board, 0, play);
         
         if (result == REACHED_PORTAL) {
-            debug("PACMAN_THREAD: Reached portal!\n");
             sync->level_complete = 1;
             sync->game_running = 0;
             sync->display_ready = 1;
@@ -223,7 +203,6 @@ void* pacman_thread_func(void* arg) {
         }
         
         if (result == DEAD_PACMAN || !pacman->alive) {
-            debug("PACMAN_THREAD: Pacman died!\n");
             sync->pacman_dead = 1;
             sync->game_running = 0;
             sync->display_ready = 1;
@@ -242,7 +221,6 @@ void* pacman_thread_func(void* arg) {
         }
     }
     
-    debug("PACMAN_THREAD: Exiting\n");
     free(args);
     return NULL;
 }
@@ -255,7 +233,6 @@ void* ghost_thread_func(void* arg) {
     int ghost_index = args->entity_index;
     game_sync_t* sync = args->sync;
     
-    debug("GHOST_THREAD[%d]: Started (TID %lu)\n", ghost_index, pthread_self());
     
     while (sync->game_running && !sync->level_complete && !sync->pacman_dead) {
         ghost_t* ghost = &board->ghosts[ghost_index];
@@ -263,7 +240,6 @@ void* ghost_thread_func(void* arg) {
         // Obter próximo movimento
         command_t* move = &ghost->moves[ghost->current_move % ghost->n_moves];
         
-        // Mover ghost (mutex protege board)
         pthread_mutex_lock(&sync->board_mutex);
         
         if (!sync->game_running) {
@@ -273,9 +249,7 @@ void* ghost_thread_func(void* arg) {
         
         move_ghost(board, ghost_index, move);
         
-        // Verificar se matou pacman
         if (!board->pacmans[0].alive) {
-            debug("GHOST_THREAD[%d]: Killed pacman!\n", ghost_index);
             sync->pacman_dead = 1;
             sync->game_running = 0;
             sync->display_ready = 1;
@@ -298,7 +272,6 @@ void* ghost_thread_func(void* arg) {
         }
     }
     
-    debug("GHOST_THREAD[%d]: Exiting\n", ghost_index);
     free(args);
     return NULL;
 }
@@ -306,7 +279,6 @@ void* ghost_thread_func(void* arg) {
 // ========== FUNÇÕES AUXILIARES ==========
 
 void screen_refresh(board_t * game_board, int mode) {
-    debug("REFRESH\n");
     draw_board(game_board, mode);
     refresh_screen();
     if(game_board->tempo != 0)
@@ -350,7 +322,6 @@ void sort_level_files(char level_names[][MAX_FILENAME], int n_levels) {
 int find_level_files(char* level_directory, char level_names[][MAX_FILENAME]) {
     DIR* dir = opendir(level_directory);
     if (dir == NULL) {
-        printf("ERRO: Não consegui abrir o diretório %s\n", level_directory);
         return -1;
     }
     
@@ -374,19 +345,16 @@ int find_level_files(char* level_directory, char level_names[][MAX_FILENAME]) {
     closedir(dir);
     
     if (count == 0) {
-        printf("AVISO: Não foram encontrados ficheiros .lvl no diretório %s\n", level_directory);
         return 0;
     }
     
-    printf("✓ Encontrados %d ficheiro(s) .lvl\n", count);
     return count;
 }
 
-// ========== MAIN COM THREADS + QUICK SAVE ==========
+// ========== MAIN FUNC ==========
 
 int main(int argc, char** argv) {
     if (argc != 2) {
-        printf("Usage: %s <level_directory>\n", argv[0]);
         return 1;
     }
 
@@ -397,7 +365,6 @@ int main(int argc, char** argv) {
     terminal_init();
 
     if (init_game_sync(&game_sync) != 0) {
-        printf("Erro: falha ao inicializar sincronização de threads\n");
         terminal_cleanup();
         close_debug_file();
         return 1;
@@ -407,7 +374,6 @@ int main(int argc, char** argv) {
     int n_levels = find_level_files(level_directory, level_names);
     
     if (n_levels <= 0) {
-        printf("ERRO: Não foram encontrados níveis para carregar!\n");
         terminal_cleanup();
         close_debug_file();
         return 1;
@@ -415,7 +381,6 @@ int main(int argc, char** argv) {
     
     sort_level_files(level_names, n_levels);
     
-    printf("Níveis encontrados (ordenados):\n");
     for (int i = 0; i < n_levels; i++) {
         printf("  %d. %s.lvl\n", i + 1, level_names[i]);
     }
@@ -431,10 +396,8 @@ int main(int argc, char** argv) {
         level_data_t level_data;
         
         snprintf(level_name, sizeof(level_name), "%s", level_names[current_level_index]);
-        printf("=== Carregando nível: %s.lvl ===\n", level_name);
         
         if (parse_level_file(level_directory, level_name, &level_data) != 0) {
-            printf("ERRO: Não consegui carregar o nível %s!\n", level_name);
             break;
         }
         
@@ -442,7 +405,6 @@ int main(int argc, char** argv) {
         
         // ===== CRIAR THREADS INICIAIS =====
         if (create_all_threads(&game_board) != 0) {
-            printf("ERRO: Falha ao criar threads\n");
             goto cleanup_level;
         }
         
@@ -465,14 +427,12 @@ int main(int argc, char** argv) {
             free(ghost_threads);
             ghost_threads = NULL;
             
-            // ===== QUICK SAVE COM FORK =====
+            // ===== QUICK SAVE =====
             if (game_sync.quick_save_requested) {
-                debug("MAIN: Quick save requested (backup_parent_pid=%d)\n", backup_parent_pid);
                 
                 // Só pode existir 1 backup
                 if (backup_parent_pid != -1) {
                     if (kill(backup_parent_pid, 0) == 0) {
-                        debug("MAIN: Backup already exists (PID %d), ignoring G\n", backup_parent_pid);
                         
                         // Reiniciar threads e continuar
                         if (create_all_threads(&game_board) != 0) {
@@ -484,17 +444,15 @@ int main(int argc, char** argv) {
                     }
                 }
                 
-                debug("MAIN: Creating backup with fork()\n");
                 fflush(NULL);
                 
                 pid_t child_pid = fork();
                 
                 if (child_pid < 0) {
-                    debug("MAIN: ERROR - fork failed\n");
                     goto cleanup_level;
                 }
                 else if (child_pid == 0) {
-                    // ===== CHILD: Continua jogando =====
+                    // ===== CHILD: continua a jogar =====
                     backup_parent_pid = getppid();
                     debug("CHILD: Created (PID %d), parent backup (PID %d)\n", 
                           getpid(), backup_parent_pid);

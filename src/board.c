@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>
-#include <fcntl.h>      // Para open(), O_RDONLY
+#include <fcntl.h>
 #include <stdarg.h>
 #include <string.h> 
 #include <stdbool.h> 
@@ -11,7 +11,6 @@
 
 FILE * debugfile;
 
-// Helper private function to find and kill pacman at specific position
 static int find_and_kill_pacman(board_t* board, int new_x, int new_y) {
     for (int p = 0; p < board->n_pacmans; p++) {
         pacman_t* pac = &board->pacmans[p];
@@ -24,14 +23,12 @@ static int find_and_kill_pacman(board_t* board, int new_x, int new_y) {
     return VALID_MOVE;
 }
 
-// Helper private function for getting board position index
 static inline int get_board_index(board_t* board, int x, int y) {
     return y * board->width + x;
 }
 
-// Helper private function for checking valid position
 static inline int is_valid_position(board_t* board, int x, int y) {
-    return (x >= 0 && x < board->width) && (y >= 0 && y < board->height); // Inside of the board boundaries
+    return (x >= 0 && x < board->width) && (y >= 0 && y < board->height);
 }
 
 static int parse_dim_line(char* line, int* width, int* height) {
@@ -40,7 +37,7 @@ static int parse_dim_line(char* line, int* width, int* height) {
     }
 
     if (sscanf(line, "DIM %d %d", width, height) != 2) {
-        return -1; // Invalid format
+        return -1;
     }
 
     return 0; 
@@ -52,7 +49,7 @@ static int parse_tempo_line(char* line, int* tempo) {
     }
 
     if (sscanf(line, "TEMPO %d", tempo) != 1) {
-        return -1; // Invalid format
+        return -1;
     }
 
     return 0;
@@ -63,7 +60,7 @@ static int parse_pac_line(char* line, char* pac_file) {
         return -1;
     }
     if (sscanf(line, "PAC %s", pac_file) != 1) {
-        return -1; // Invalid format
+        return -1;
     }
 
     return 0;
@@ -81,7 +78,7 @@ static int parse_mon_line(char* line, char ghost_files[][MAX_FILENAME], int* n_g
     }
 
     if (*start == '\0') {
-        return -1; // Invalid format
+        return -1;
     }
 
     *n_ghosts = 0;
@@ -107,7 +104,7 @@ static int parse_mon_line(char* line, char ghost_files[][MAX_FILENAME], int* n_g
         (*n_ghosts)++;
     }
     if (*n_ghosts == 0) {
-        return -1; // Invalid format
+        return -1;
     }
     return 0;      
 }
@@ -146,7 +143,7 @@ int parse_monster_file(char* level_directory, char* monster_file, ghost_t* ghost
     char* current = buffer;
     bool found_passo = false;
     bool found_pos = false;
-    bool in_commands = false; // Flag para saber se já passámos PASSO e POS
+    bool in_commands = false;
     
     while (*current != '\0') {
         if (*current == '\n') {
@@ -156,7 +153,7 @@ int parse_monster_file(char* level_directory, char* monster_file, ghost_t* ghost
                 // Ignorar linhas vazias e comentários (começadas com #)
                 if (line_start[0] == '\0' || line_start[0] == '#') {
                     line_start = current + 1;
-                    current++;  // Avançar current antes do continue
+                    current++;
                     continue;
                 }
                 
@@ -175,17 +172,16 @@ int parse_monster_file(char* level_directory, char* monster_file, ghost_t* ghost
                         found_pos = true;
                     }
                 }
-                // Comandos de movimento (após PASSO e POS, ou se não existirem)
+
                 else {
-                    in_commands = true; // A partir daqui são comandos
+                    in_commands = true;
                     
-                    // Parsear comando: formato "COMANDO N" ou apenas "COMANDO"
                     char cmd = '\0';
                     int turns = 1;
                     
-                    // Tentar ler comando com número (ex: "D 8", "T 5")
+
                     if (sscanf(line_start, "%c %d", &cmd, &turns) == 2) {
-                        // Comando com número de turns
+
                         if (ghost->n_moves < MAX_MOVES) {
                             ghost->moves[ghost->n_moves].command = cmd;
                             ghost->moves[ghost->n_moves].turns = turns;
@@ -193,7 +189,7 @@ int parse_monster_file(char* level_directory, char* monster_file, ghost_t* ghost
                             ghost->n_moves++;
                         }
                     } 
-                    // Tentar ler apenas comando (ex: "R", "C")
+
                     else if (sscanf(line_start, "%c", &cmd) == 1) {
                         if (ghost->n_moves < MAX_MOVES) {
                             ghost->moves[ghost->n_moves].command = cmd;
@@ -233,22 +229,22 @@ int parse_pacman_file(char* level_directory, char* pacman_file, pacman_t* pacman
     buffer[total_bytes] = '\0';
     close(fd);
     
-    // IMPORTANTE: Inicializar pos_x e pos_y ANTES de qualquer outra coisa
+
     pacman->pos_x = -1; 
     pacman->pos_y = -1;
     pacman->passo = 0;
     pacman->waiting = 0;
     pacman->current_move = 0;
     pacman->n_moves = 0;
-    pacman->alive = 1;  // Pacman começa vivo
-    // points não é inicializado aqui, será definido em load_pacman()
+    pacman->alive = 1;
 
-    // Parsear linha por linha
+
+
     char* line_start = buffer;
     char* current = buffer;
     bool found_passo = false;
     bool found_pos = false;
-    bool in_commands = false; // Flag para saber se já passámos PASSO e POS
+    bool in_commands = false;
     
     while (*current != '\0') {
         if (*current == '\n') {
