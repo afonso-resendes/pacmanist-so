@@ -39,7 +39,7 @@ int pacman_disconnect() {
 }
 
 Board receive_board_update(void) {
-  // TODO - implement me
+    // TODO - implement me
   Board board = {0};
   return board;
 }
