@@ -1,67 +1,80 @@
 # Compiler variables
 CC = gcc
 CFLAGS = -I include -g -Wall -Wextra -Werror -std=c17 -D_POSIX_C_SOURCE=200809L
-LDFLAGS = -lncurses -lpthread
+LDFLAGS_SERVER = -lncurses -lpthread
+LDFLAGS_CLIENT = -lncurses -lpthread
 
 # Directory variables
-SRC_DIR = src
 OBJ_DIR = obj
 BIN_DIR = bin
 INCLUDE_DIR = include
 
-# executable 
-TARGET = Pacmanist
+# Server
+SERVER_SRC_DIR = src/server
+SERVER_TARGET = PacmanIST
+SERVER_OBJS = game.o board.o threads.o display.o
 
-# Objects variables
-OBJS = game.o display.o board.o threads.o
-
-# Dependencies
-display.o = display.h
-board.o = board.h
-threads.o = threads.h
+# Client
+CLIENT_SRC_DIR = src/client
+CLIENT_TARGET = client
+CLIENT_OBJS = client_main.o api.o display.o debug.o
 
 # Object files path
 vpath %.o $(OBJ_DIR)
-vpath %.c $(SRC_DIR)
 
 # Make targets
-all: pacmanist
+all: server client
 
-pacmanist: $(BIN_DIR)/$(TARGET)
+# ============ SERVER ============
+server: $(BIN_DIR)/$(SERVER_TARGET)
 
-$(BIN_DIR)/$(TARGET): $(OBJS) | folders
-	$(CC) $(CFLAGS) $(SLEEP) $(addprefix $(OBJ_DIR)/,$(OBJS)) -o $@ $(LDFLAGS)
+$(BIN_DIR)/$(SERVER_TARGET): $(addprefix $(OBJ_DIR)/server_, $(SERVER_OBJS)) | folders
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS_SERVER)
 
-# dont include LDFLAGS in the end, to allow compilation on macos
-%.o: %.c $($@) | folders
-	$(CC) -I $(INCLUDE_DIR) $(CFLAGS) -o $(OBJ_DIR)/$@ -c $<
+$(OBJ_DIR)/server_%.o: $(SERVER_SRC_DIR)/%.c | folders
+	$(CC) $(CFLAGS) -o $@ -c $<
 
-# run the program
-# Usage: make run levels
-#        make run test_levels
-# Captura o primeiro argumento após "run"
+# ============ CLIENT ============
+client: $(BIN_DIR)/$(CLIENT_TARGET)
+
+$(BIN_DIR)/$(CLIENT_TARGET): $(addprefix $(OBJ_DIR)/client_, $(CLIENT_OBJS)) | folders
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS_CLIENT)
+
+$(OBJ_DIR)/client_%.o: $(CLIENT_SRC_DIR)/%.c | folders
+	$(CC) $(CFLAGS) -o $@ -c $<
+
+# ============ RUN ============
+# Run server: make run-server levels/
 DIR := $(word 2,$(MAKECMDGOALS))
-run: pacmanist
+run-server: server
 	@if [ -z "$(DIR)" ]; then \
-		echo "ERRO: Deves especificar o diretório: make run <diretório>"; \
+		echo "Usage: make run-server <levels_directory>"; \
 		exit 1; \
 	fi
-	@./$(BIN_DIR)/$(TARGET) $(DIR)
+	@./$(BIN_DIR)/$(SERVER_TARGET) $(DIR)
 
-# Prevenir que o Make tente construir o diretório como target
+# Run client: make run-client ID=1 PIPE=/tmp/pacman_register
+run-client: client
+	@if [ -z "$(ID)" ] || [ -z "$(PIPE)" ]; then \
+		echo "Usage: make run-client ID=<client_id> PIPE=<register_pipe>"; \
+		exit 1; \
+	fi
+	@./$(BIN_DIR)/$(CLIENT_TARGET) $(ID) $(PIPE)
+
+# Prevent Make from trying to build the directory as a target
 %:
 	@:
 
-# Create folders
+# ============ UTILITIES ============
 folders:
 	mkdir -p $(OBJ_DIR)
 	mkdir -p $(BIN_DIR)
 
-# Clean object files and executable
 clean:
-	rm -f $(OBJ_DIR)/*.o
-	rm -f $(BIN_DIR)/$(TARGET)
+	rm -rf $(OBJ_DIR)
+	rm -f $(BIN_DIR)/$(SERVER_TARGET)
+	rm -f $(BIN_DIR)/$(CLIENT_TARGET)
 	rm -f *.log
+	rm -f /tmp/*_request /tmp/*_notification /tmp/pacman_register
 
-# indentify targets that do not create files
-.PHONY: all clean run folders
+.PHONY: all clean folders server client run-server run-client

@@ -1,5 +1,5 @@
-#ifndef DISPLAY_H
-#define DISPLAY_H
+#ifndef SERVER_DISPLAY_H
+#define SERVER_DISPLAY_H
 
 #include "board.h"
 #include <ncurses.h>

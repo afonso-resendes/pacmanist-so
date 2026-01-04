@@ -1,5 +1,5 @@
 #include "board.h"
-#include "display.h"
+#include "server_display.h"
 #include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
