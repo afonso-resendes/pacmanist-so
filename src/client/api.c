@@ -186,7 +186,45 @@ void pacman_play(char command) {
 }
 
 int pacman_disconnect() {
-  // TODO - implement me
+  if (session.req_pipe < 0) {
+    // Já desconectado - retornar sucesso
+    return 0;
+  }
+
+  char msg = OP_CODE_DISCONNECT;
+  ssize_t bytes_written = 0;
+  ssize_t total_bytes = 1;
+
+  while (bytes_written < total_bytes) {
+    ssize_t n = write(session.req_pipe, &msg + bytes_written, total_bytes - bytes_written);
+    if (n == -1) {
+      // Erro ao escrever - continuar para fechar pipes mesmo assim
+      break;
+    }
+    bytes_written += n;
+  }
+
+  if (session.req_pipe >= 0) {
+    close(session.req_pipe);
+    session.req_pipe = -1;
+  }
+
+  if (session.notif_pipe >= 0) {
+    close(session.notif_pipe);
+    session.notif_pipe = -1;
+  }
+
+ 
+  unlink(session.req_pipe_path);
+  unlink(session.notif_pipe_path);
+
+ 
+  session.id = -1;
+  session.req_pipe = -1;  
+  session.notif_pipe = -1; 
+  session.req_pipe_path[0] = '\0';
+  session.notif_pipe_path[0] = '\0';
+
   return 0;
 }
 
@@ -220,7 +258,14 @@ Board receive_board_update(void) {
       return board;
     }
      bytes_read += n;
+  }
 
+ 
+  if (bytes_read != total_header_bytes) {
+    Board board = {0};
+    board.game_over = 1;
+    board.data = NULL;
+    return board;
   }
 
   // Verificar OP_CODE
@@ -250,7 +295,8 @@ Board receive_board_update(void) {
     return board;
   }
 
-  ssize_t bytes_read = 0;
+  // 3.5 Ler dados do board
+  bytes_read = 0;  // Reutilizar variável já declarada
   ssize_t total_data_bytes = data_size;
  
 
@@ -275,6 +321,25 @@ Board receive_board_update(void) {
     bytes_read += n;
   }
 
+  
+  if (bytes_read != total_data_bytes) {
+    free(data);
+    Board board = {0};
+    board.game_over = 1;
+    board.data = NULL;
+    return board;
+  }
+
+  // Validar valores lidos (tratamento de erros)
+  if (width <= 0 || height <= 0 || width > 1000 || height > 1000) {
+    free(data);
+    Board board = {0};
+    board.game_over = 1;
+    board.data = NULL;
+    return board;
+  }
+
+ 
   Board board;
   board.width = width;
   board.height = height;
