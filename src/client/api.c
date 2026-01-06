@@ -295,7 +295,7 @@ Board receive_board_update(void) {
     return board;
   }
 
-  // 3.5 Ler dados do board
+  
   bytes_read = 0;  // Reutilizar variável já declarada
   ssize_t total_data_bytes = data_size;
  
