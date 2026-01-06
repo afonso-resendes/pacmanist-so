@@ -195,3 +195,4 @@ todos:
 - Se houver empate em pontuação, ordem é indiferente
 - Ficheiro de log pode ser sobrescrito a cada SIGUSR1 ou usar timestamp
 - Considerar usar mutex ao aceder `sigusr1_received` se necessário (mas `volatile` pode ser suficiente)
+

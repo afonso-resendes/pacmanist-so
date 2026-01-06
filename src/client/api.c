@@ -88,7 +88,7 @@ int pacman_connect(char const *req_pipe_path, char const *notif_pipe_path, char 
 
   close(server_fd);
 
-  session.req_pipe = open(req_pipe_path, O_RDONLY);
+  session.req_pipe = open(req_pipe_path, O_WRONLY);
   if (session.req_pipe == -1) {
       perror("[ERR]: open(req_pipe_path) failed");
       unlink(req_pipe_path);
@@ -159,8 +159,30 @@ int pacman_connect(char const *req_pipe_path, char const *notif_pipe_path, char 
 }
 
 void pacman_play(char command) {
-  // TODO - implement me
-  (void)command;
+
+  if (session.id < 0 || session.req_pipe < 0) {
+    // Sessão não está ativa - retornar silenciosamente
+     debug("[WARN]: pacman_play() called without active session\n");
+    return;
+  }
+
+  char msg[2];
+  msg[0] = OP_CODE_PLAY;
+  msg[1] = command;
+
+  ssize_t bytes_written = 0;
+  ssize_t total_bytes = 2;
+
+  while (bytes_written < total_bytes) {
+    ssize_t n = write(session.req_pipe, msg + bytes_written, total_bytes - bytes_written);
+    if (n == -1 ) {
+      debug("[ERR]: write(req_pipe) failed in pacman_play()\n");
+      return;
+    }
+    bytes_written += n;
+  }
+  
+ 
 }
 
 int pacman_disconnect() {
@@ -169,7 +191,100 @@ int pacman_disconnect() {
 }
 
 Board receive_board_update(void) {
-    // TODO - implement me
-  Board board = {0};
+
+  if (session.notif_pipe < 0) {
+    Board board = {0};
+    board.game_over = 1;
+    board.data = NULL;
+    return board;
+  }
+
+  char header[25];
+  ssize_t bytes_read = 0;
+  ssize_t total_header_bytes = 25;
+
+  while (bytes_read < total_header_bytes) {
+    ssize_t n = read(session.notif_pipe, header + bytes_read, total_header_bytes - bytes_read);
+     if (n == -1) {
+      // Erro na leitura
+      Board board = {0};
+      board.game_over = 1;
+      board.data = NULL;
+      return board;
+    }
+    if (n == 0) {
+      // Pipe fechado - servidor desconectou
+      Board board = {0};
+      board.game_over = 1;
+      board.data = NULL;
+      return board;
+    }
+     bytes_read += n;
+
+  }
+
+  // Verificar OP_CODE
+  if (header[0] != OP_CODE_BOARD) {
+    // OP_CODE inválido
+    Board board = {0};
+    board.game_over = 1;
+    board.data = NULL;
+    return board;
+  }
+
+  // Deserializar ints do cabeçalho
+  int width = *(int*)(header + 1);
+  int height = *(int*)(header + 5);
+  int tempo = *(int*)(header + 9);
+  int victory = *(int*)(header + 13);
+  int game_over = *(int*)(header + 17);
+  int accumulated_points = *(int*)(header + 21);
+
+  size_t data_size = width * height;
+  char* data = malloc(data_size);
+  if (data == NULL) {
+    //Falha na alocação
+    Board board = {0};
+    board.game_over = 1;
+    board.data = NULL;
+    return board;
+  }
+
+  ssize_t bytes_read = 0;
+  ssize_t total_data_bytes = data_size;
+ 
+
+  while (bytes_read < total_data_bytes) {
+    ssize_t n = read(session.notif_pipe, data + bytes_read, total_data_bytes - bytes_read);
+    if (n == -1) {
+      // Erro na leitura - libertar memória
+      free(data);
+      Board board = {0};
+      board.game_over = 1;
+      board.data = NULL;
+      return board;
+    }
+    if (n == 0) {
+      // Pipe fechado - libertar memória
+      free(data);
+      Board board = {0};
+      board.game_over = 1;
+      board.data = NULL;
+      return board;
+    }
+    bytes_read += n;
+  }
+
+  Board board;
+  board.width = width;
+  board.height = height;
+  board.tempo = tempo;
+  board.victory = victory;
+  board.game_over = game_over;
+  board.accumulated_points = accumulated_points;
+  board.data = data;
+  
+ 
+ 
   return board;
 }
