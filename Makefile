@@ -44,14 +44,17 @@ $(OBJ_DIR)/client_%.o: $(CLIENT_SRC_DIR)/%.c | folders
 	$(CC) $(CFLAGS) -o $@ -c $<
 
 # ============ RUN ============
-# Run server: make run-server levels/
+# Run server: make run-server levels/ [max_games] [register_pipe]
 DIR := $(word 2,$(MAKECMDGOALS))
+MAX_GAMES ?= 3
+REGISTER_PIPE ?= /tmp/pacman_register
 run-server: server
 	@if [ -z "$(DIR)" ]; then \
-		echo "Usage: make run-server <levels_directory>"; \
+		echo "Usage: make run-server <levels_directory> [MAX_GAMES=N] [REGISTER_PIPE=path]"; \
+		echo "Example: make run-server levels/ MAX_GAMES=3 REGISTER_PIPE=/tmp/pacman_register"; \
 		exit 1; \
 	fi
-	@./$(BIN_DIR)/$(SERVER_TARGET) $(DIR)
+	@./$(BIN_DIR)/$(SERVER_TARGET) $(DIR) $(MAX_GAMES) $(REGISTER_PIPE)
 
 # Run client: make run-client ID=1 PIPE=/tmp/pacman_register
 run-client: client
@@ -72,9 +75,6 @@ folders:
 
 clean:
 	rm -rf $(OBJ_DIR)
-	rm -f $(BIN_DIR)/$(SERVER_TARGET)
-	rm -f $(BIN_DIR)/$(CLIENT_TARGET)
-	rm -f *.log
-	rm -f /tmp/*_request /tmp/*_notification /tmp/pacman_register
+	rm -rf $(BIN_DIR)
 
 .PHONY: all clean folders server client run-server run-client

@@ -81,6 +81,7 @@ void sleep_ms(int milliseconds);
 command - command to be processed*/
 int move_pacman(board_t* board, int pacman_index, command_t* command);
 int move_ghost(board_t* board, int ghost_index, command_t* command);
+int move_ghost_charged(board_t* board, int ghost_index, char direction);
 
 /*Process the death of a Pacman*/
 void kill_pacman(board_t* board, int pacman_index);
