@@ -109,6 +109,11 @@ void* pacman_thread_func(void* arg) {
     board_t* board = (board_t*)args->board;
     game_sync_t* sync = args->sync;
     session_t* session = (session_t*)((char*)sync - offsetof(session_t, sync));
+
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, SIGUSR1);
+    pthread_sigmask(SIG_BLOCK, &set, NULL);
     
     while (sync->game_running && !sync->level_complete && !sync->pacman_dead) {
         // Ler comando do pipe
@@ -124,12 +129,10 @@ void* pacman_thread_func(void* arg) {
             break;
         }
         
-        if (n != 2 || msg[0] != OP_CODE_PLAY) {
+        if (n != 2 ) {
             continue;
         }
-        
-        char command = msg[1];
-        
+
         // Processar comando DISCONNECT
         if (msg[0] == OP_CODE_DISCONNECT) {
             pthread_mutex_lock(&sync->board_mutex);
@@ -138,6 +141,14 @@ void* pacman_thread_func(void* arg) {
             pthread_mutex_unlock(&sync->board_mutex);
             break;
         }
+
+        if (msg[0] != OP_CODE_PLAY) {
+            continue;
+        }
+        
+        char command = msg[1];
+        
+        
         
         // Mover pacman
         pthread_mutex_lock(&sync->board_mutex);
@@ -171,6 +182,11 @@ void* ghost_thread_func(void* arg) {
     board_t* board = (board_t*)args->board;
     int ghost_index = args->entity_index;
     game_sync_t* sync = args->sync;
+
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, SIGUSR1);
+    pthread_sigmask(SIG_BLOCK, &set, NULL);
     
     while (sync->game_running && !sync->level_complete && !sync->pacman_dead) {
         ghost_t* ghost = &board->ghosts[ghost_index];
@@ -219,6 +235,11 @@ void* board_update_thread_func(void* arg) {
     session_t* session = (session_t*)arg;
     board_t* board = (board_t*)session->board;
     game_sync_t* sync = &session->sync;
+
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, SIGUSR1);
+    pthread_sigmask(SIG_BLOCK, &set, NULL);
     
     while (sync->game_running) {
         pthread_mutex_lock(&sync->board_mutex);
